@@ -1,0 +1,256 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserRole {
+  ADMIN
+  SHOPKEEPER
+  CUSTOMER
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PREPARING
+  READY
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model Admin {
+  id           Int      @id @default(autoincrement())
+  name         String
+  email        String   @unique
+  passwordHash String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("admins")
+}
+
+model Shop {
+  id            Int            @id @default(autoincrement())
+  name          String
+  slug          String         @unique
+  subdomain     String         @unique
+  address       String?
+  phone         String?
+  qrUrl         String?
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  shopkeepers   Shopkeeper[]
+  categories    Category[]
+  products      Product[]
+  orders        Order[]
+  payments      Payment[]
+  tokenCounters TokenCounter[]
+
+  @@map("shops")
+}
+
+model Shopkeeper {
+  id           Int      @id @default(autoincrement())
+  shopId       Int
+  shop         Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  name         String
+  email        String   @unique
+  mobile       String?
+  passwordHash String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([shopId])
+  @@map("shopkeepers")
+}
+
+model Customer {
+  id           Int       @id @default(autoincrement())
+  name         String
+  email        String    @unique
+  mobile       String?
+  passwordHash String
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  orders       Order[]
+  payments     Payment[]
+
+  @@map("customers")
+}
+
+model RefreshToken {
+  id        Int      @id @default(autoincrement())
+  tokenHash String   @unique
+  userId    Int
+  role      UserRole
+  expiresAt DateTime
+  isRevoked Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, role])
+  @@map("refresh_tokens")
+}
+
+model Category {
+  id          Int       @id @default(autoincrement())
+  shopId      Int
+  shop        Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  sortOrder   Int       @default(0)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  products    Product[]
+
+  @@unique([shopId, name])
+  @@index([shopId])
+  @@map("categories")
+}
+
+model Product {
+  id          Int         @id @default(autoincrement())
+  shopId      Int
+  shop        Shop        @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  categoryId  Int
+  category    Category    @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  price       Decimal     @db.Decimal(10, 2)
+  imageUrl    String?
+  isAvailable Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  orderItems  OrderItem[]
+
+  @@index([shopId])
+  @@index([categoryId])
+  @@map("products")
+}
+
+model Order {
+  id            Int                  @id @default(autoincrement())
+  orderCode     String               @unique
+  shopId        Int
+  shop          Shop                 @relation(fields: [shopId], references: [id])
+  customerId    Int?
+  customer      Customer?            @relation(fields: [customerId], references: [id])
+  customerName  String?
+  customerPhone String?
+  tokenNumber   String?
+  orderStatus   OrderStatus          @default(PENDING)
+  paymentStatus PaymentStatus        @default(PENDING)
+  subtotal      Decimal              @db.Decimal(10, 2)
+  tax           Decimal              @default(0.00) @db.Decimal(10, 2)
+  totalAmount   Decimal              @db.Decimal(10, 2)
+  notes         String?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  items         OrderItem[]
+  payments      Payment[]
+  statusHistory OrderStatusHistory[]
+
+  @@index([shopId])
+  @@index([customerId])
+  @@index([orderStatus])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id          Int      @id @default(autoincrement())
+  orderId     Int
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId   Int
+  product     Product  @relation(fields: [productId], references: [id])
+  productName String
+  unitPrice   Decimal  @db.Decimal(10, 2)
+  quantity    Int
+  lineTotal   Decimal  @db.Decimal(10, 2)
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+model Payment {
+  id                Int           @id @default(autoincrement())
+  orderId           Int
+  order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  shopId            Int
+  shop              Shop          @relation(fields: [shopId], references: [id])
+  customerId        Int?
+  customer          Customer?     @relation(fields: [customerId], references: [id])
+  amount            Decimal       @db.Decimal(10, 2)
+  currency          String        @default("INR")
+  provider          String        @default("RAZORPAY")
+  razorpayOrderId   String?       @unique
+  razorpayPaymentId String?       @unique
+  razorpaySignature String?
+  status            PaymentStatus @default(PENDING)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([orderId])
+  @@index([shopId])
+  @@index([customerId])
+  @@map("payments")
+}
+
+model TokenCounter {
+  id           Int      @id @default(autoincrement())
+  shopId       Int
+  shop         Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  date         String   // YYYY-MM-DD
+  lastSequence Int      @default(100)
+  updatedAt    DateTime @updatedAt
+
+  @@unique([shopId, date])
+  @@index([shopId])
+  @@map("token_counters")
+}
+
+model OrderStatusHistory {
+  id            Int       @id @default(autoincrement())
+  orderId       Int
+  order         Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status        OrderStatus
+  notes         String?
+  changedByRole UserRole?
+  changedById   Int?
+  createdAt     DateTime  @default(now())
+
+  @@index([orderId])
+  @@map("order_status_history")
+}
+
+model PaymentWebhookEvent {
+  id          Int      @id @default(autoincrement())
+  eventId     String   @unique
+  eventType   String
+  payload     Json
+  status      String   @default("PROCESSED")
+  processedAt DateTime @default(now())
+
+  @@map("payment_webhook_events")
+}

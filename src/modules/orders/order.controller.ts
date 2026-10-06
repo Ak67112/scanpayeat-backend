@@ -1,0 +1,101 @@
+import { Request, Response, NextFunction } from 'express';
+import { orderService } from './order.service';
+import { sendSuccess } from '../../utils/response';
+
+export class OrderController {
+  // Checkout (Public or Authenticated Customer)
+  async checkout(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const customer = req.user
+        ? { id: req.user.id, email: req.user.email }
+        : undefined;
+      const result = await orderService.checkout(req.body, customer);
+      sendSuccess(res, result, 'Order created successfully. Proceed to payment.', 201);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Shopkeeper: List Orders
+  async getShopOrders(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const status = req.query.status as any;
+      const paymentStatus = req.query.paymentStatus as any;
+      const page = req.query.page ? parseInt(req.query.page as string, 10) : 1;
+      const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 20;
+
+      const result = await orderService.getShopOrders(req.shopId!, {
+        status,
+        paymentStatus,
+        page,
+        limit,
+      });
+      sendSuccess(res, result, 'Shop orders retrieved successfully', 200);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Shopkeeper: Get Single Order
+  async getShopOrderById(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const order = await orderService.getShopOrderById(req.shopId!, id);
+      sendSuccess(res, { order }, 'Order details retrieved successfully', 200);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Shopkeeper: Update Status
+  async updateOrderStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const order = await orderService.updateOrderStatus(
+        req.shopId!,
+        id,
+        req.body,
+        { id: req.user!.id, role: req.user!.role }
+      );
+      sendSuccess(res, { order }, 'Order status updated successfully', 200);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Customer: Order History
+  async getMyOrders(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const page = req.query.page ? parseInt(req.query.page as string, 10) : 1;
+      const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 20;
+
+      const result = await orderService.getCustomerOrders(req.user!.id, { page, limit });
+      sendSuccess(res, result, 'Customer order history retrieved successfully', 200);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Customer: Single Order by Order Code
+  async getMyOrderByCode(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { orderCode } = req.params;
+      const order = await orderService.getCustomerOrderByCode(req.user!.id, orderCode);
+      sendSuccess(res, { order }, 'Order details retrieved successfully', 200);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Shopkeeper: Live Sales Statistics (Today, Week, Month, All-Time)
+  async getShopStats(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const stats = await orderService.getShopStats(req.shopId!);
+      sendSuccess(res, { stats }, 'Shopkeeper statistics retrieved successfully', 200);
+    } catch (error) {
+      next(error);
+    }
+  }
+}
+
+export const orderController = new OrderController();

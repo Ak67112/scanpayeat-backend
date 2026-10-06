@@ -1,0 +1,504 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Scan-Pay-Eat Backend API",
+    "version": "1.0.0",
+    "description": "Production-ready, multi-tenant QR food ordering platform backend for Scan-Pay-Eat. Supports three user roles: Admin, Shopkeeper, and Customer."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:5001",
+      "description": "Local Development Server"
+    },
+    {
+      "url": "https://api.scanpayeat.com",
+      "description": "Production Server"
+    }
+  ],
+  "tags": [
+    { "name": "Auth", "description": "Authentication & Session Management" },
+    { "name": "Admin", "description": "Platform Admin Operations (Shops, Shopkeepers, Dashboard)" },
+    { "name": "Shopkeeper", "description": "Shop-Scoped Operations (Categories, Products, Orders)" },
+    { "name": "Public", "description": "Public QR Menu & Shop Resolution" },
+    { "name": "Orders", "description": "Customer Checkout & Price Validation" },
+    { "name": "Payments", "description": "Razorpay Verification & Atomic Order Confirmation" },
+    { "name": "Webhooks", "description": "Razorpay Webhooks & Event Idempotency" },
+    { "name": "Customer", "description": "Customer Order History & Live Tracking" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "JWT Access Token passed in the Authorization header"
+      },
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "accessToken",
+        "description": "HttpOnly accessToken cookie"
+      }
+    },
+    "schemas": {
+      "ApiResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "message": { "type": "string" },
+          "data": { "type": "object" },
+          "errors": { "type": "array", "items": { "type": "object" } }
+        }
+      },
+      "CustomerRegisterDto": {
+        "type": "object",
+        "required": ["name", "email", "password"],
+        "properties": {
+          "name": { "type": "string", "example": "Rahul Sharma" },
+          "email": { "type": "string", "format": "email", "example": "rahul@example.com" },
+          "mobile": { "type": "string", "example": "9876543210" },
+          "password": { "type": "string", "minLength": 6, "example": "Customer@123" }
+        }
+      },
+      "LoginDto": {
+        "type": "object",
+        "required": ["email", "password"],
+        "properties": {
+          "email": { "type": "string", "format": "email", "example": "shop@abc.com" },
+          "password": { "type": "string", "example": "Shop@123" },
+          "role": { "type": "string", "enum": ["ADMIN", "SHOPKEEPER", "CUSTOMER"] }
+        }
+      },
+      "CreateShopDto": {
+        "type": "object",
+        "required": ["name", "slug", "subdomain"],
+        "properties": {
+          "name": { "type": "string", "example": "ABC Restaurant" },
+          "slug": { "type": "string", "example": "abc" },
+          "subdomain": { "type": "string", "example": "abc" },
+          "address": { "type": "string", "example": "101 Food Street, Bengaluru" },
+          "phone": { "type": "string", "example": "+91 98765 43210" }
+        }
+      },
+      "CreateShopkeeperDto": {
+        "type": "object",
+        "required": ["name", "email", "shopId", "password"],
+        "properties": {
+          "name": { "type": "string", "example": "John Doe" },
+          "email": { "type": "string", "format": "email", "example": "john@example.com" },
+          "mobile": { "type": "string", "example": "9999999999" },
+          "shopId": { "type": "integer", "example": 1 },
+          "password": { "type": "string", "minLength": 6, "example": "SecretPass123" }
+        }
+      },
+      "CreateCategoryDto": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "example": "Burgers" },
+          "description": { "type": "string", "example": "Handcrafted gourmet burgers" },
+          "sortOrder": { "type": "integer", "default": 0, "example": 1 }
+        }
+      },
+      "CreateProductDto": {
+        "type": "object",
+        "required": ["categoryId", "name", "price"],
+        "properties": {
+          "categoryId": { "type": "integer", "example": 1 },
+          "name": { "type": "string", "example": "Classic Chicken Burger" },
+          "description": { "type": "string", "example": "Crispy chicken patty with lettuce and mayo" },
+          "price": { "type": "number", "example": 180 },
+          "imageUrl": { "type": "string", "example": "https://res.cloudinary.com/demo/burger.jpg" },
+          "isAvailable": { "type": "boolean", "default": true }
+        }
+      },
+      "CheckoutDto": {
+        "type": "object",
+        "required": ["items"],
+        "properties": {
+          "shopId": { "type": "integer", "example": 1 },
+          "shopSlug": { "type": "string", "example": "abc" },
+          "customerName": { "type": "string", "example": "Rahul Sharma" },
+          "customerPhone": { "type": "string", "example": "9876543210" },
+          "notes": { "type": "string", "example": "Less spicy please" },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["productId", "quantity"],
+              "properties": {
+                "productId": { "type": "integer", "example": 1 },
+                "quantity": { "type": "integer", "minimum": 1, "example": 2 }
+              }
+            }
+          }
+        }
+      },
+      "VerifyPaymentDto": {
+        "type": "object",
+        "required": ["razorpay_order_id", "razorpay_payment_id", "razorpay_signature"],
+        "properties": {
+          "razorpay_order_id": { "type": "string", "example": "order_H5v8J2k0L1mNpQ" },
+          "razorpay_payment_id": { "type": "string", "example": "pay_H5v9K3m1M2nOqR" },
+          "razorpay_signature": { "type": "string", "example": "5a4b3c2d1e0f..." }
+        }
+      },
+      "UpdateOrderStatusDto": {
+        "type": "object",
+        "required": ["status"],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["PENDING", "CONFIRMED", "PREPARING", "READY", "COMPLETED", "CANCELLED"],
+            "example": "PREPARING"
+          },
+          "notes": { "type": "string", "example": "Order sent to kitchen" }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/api/auth/register": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Customer Registration",
+        "description": "Registers a new customer account, hashes password, creates refresh token, and sets httpOnly cookies.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CustomerRegisterDto" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Customer registered successfully" },
+          "400": { "description": "Validation error" },
+          "409": { "description": "Email already exists" }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Unified User Login",
+        "description": "Authenticates Admin, Shopkeeper, or Customer. Sets access & refresh token httpOnly cookies and returns token payload.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/LoginDto" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Login successful" },
+          "401": { "description": "Invalid email or password" },
+          "403": { "description": "Account or shop deactivated" }
+        }
+      }
+    },
+    "/api/auth/refresh": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Token Refresh with Rotation",
+        "description": "Rotates refresh token and issues a new access token.",
+        "responses": {
+          "200": { "description": "Token refreshed successfully" },
+          "401": { "description": "Invalid, expired, or revoked refresh token" }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Logout",
+        "description": "Revokes the refresh token and clears authentication cookies.",
+        "responses": {
+          "200": { "description": "Logged out successfully" }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "Current Authenticated Profile",
+        "security": [{ "bearerAuth": [] }, { "cookieAuth": [] }],
+        "responses": {
+          "200": { "description": "Profile retrieved" },
+          "401": { "description": "Unauthorized" }
+        }
+      }
+    },
+    "/api/admin/shops": {
+      "post": {
+        "tags": ["Admin"],
+        "summary": "Create Shop",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateShopDto" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Shop created" },
+          "409": { "description": "Slug or subdomain already exists" }
+        }
+      },
+      "get": {
+        "tags": ["Admin"],
+        "summary": "List Shops",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "search", "in": "query", "schema": { "type": "string" } },
+          { "name": "isActive", "in": "query", "schema": { "type": "boolean" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20 } }
+        ],
+        "responses": {
+          "200": { "description": "Shops list retrieved" }
+        }
+      }
+    },
+    "/api/admin/shopkeepers": {
+      "post": {
+        "tags": ["Admin"],
+        "summary": "Provision Shopkeeper Account",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateShopkeeperDto" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Shopkeeper provisioned" },
+          "404": { "description": "Target shop not found" }
+        }
+      },
+      "get": {
+        "tags": ["Admin"],
+        "summary": "List Shopkeepers",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Shopkeepers list retrieved" } }
+      }
+    },
+    "/api/admin/dashboard": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Admin Dashboard Analytics",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Returns counts for shops, shopkeepers, customers, orders, and total platform revenue"
+          }
+        }
+      }
+    },
+    "/api/admin/orders": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Global Orders Across All Shops",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Orders retrieved" } }
+      }
+    },
+    "/api/admin/transactions": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Global Transactions Audit Log",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Transactions retrieved" } }
+      }
+    },
+    "/api/shop/categories": {
+      "post": {
+        "tags": ["Shopkeeper"],
+        "summary": "Create Category (Shop Scoped)",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateCategoryDto" }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Category created" } }
+      },
+      "get": {
+        "tags": ["Shopkeeper"],
+        "summary": "List Shop Categories",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Categories retrieved" } }
+      }
+    },
+    "/api/shop/products": {
+      "post": {
+        "tags": ["Shopkeeper"],
+        "summary": "Create Product (Shop Scoped)",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateProductDto" }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Product created" } }
+      },
+      "get": {
+        "tags": ["Shopkeeper"],
+        "summary": "List Shop Products",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Products retrieved" } }
+      }
+    },
+    "/api/shop/products/{id}/availability": {
+      "patch": {
+        "tags": ["Shopkeeper"],
+        "summary": "Toggle Product Availability",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["isAvailable"],
+                "properties": { "isAvailable": { "type": "boolean" } }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Availability updated" } }
+      }
+    },
+    "/api/shop/upload": {
+      "post": {
+        "tags": ["Shopkeeper"],
+        "summary": "Upload Product Image",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "image": { "type": "string", "format": "binary" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Image uploaded, returns imageUrl" } }
+      }
+    },
+    "/api/shop/orders": {
+      "get": {
+        "tags": ["Shopkeeper"],
+        "summary": "List Shop Orders",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Orders retrieved" } }
+      }
+    },
+    "/api/shop/orders/{id}/status": {
+      "patch": {
+        "tags": ["Shopkeeper"],
+        "summary": "Update Order Status",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateOrderStatusDto" }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Status updated and broadcasted via Socket.io" } }
+      }
+    },
+    "/api/public/shops/{slug}": {
+      "get": {
+        "tags": ["Public"],
+        "summary": "Get Shop Info by Subdomain/Slug",
+        "parameters": [{ "name": "slug", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Shop information" }, "404": { "description": "Shop not found" } }
+      }
+    },
+    "/api/public/shops/{slug}/menu": {
+      "get": {
+        "tags": ["Public"],
+        "summary": "Get Public Shop Menu",
+        "description": "Returns categories and currently available products for the shop.",
+        "parameters": [{ "name": "slug", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Menu retrieved" } }
+      }
+    },
+    "/api/orders/checkout": {
+      "post": {
+        "tags": ["Orders"],
+        "summary": "Place Order (Checkout)",
+        "description": "Validates items against database prices, saves order items snapshot, creates pending order & Razorpay order.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CheckoutDto" }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Order created, returns razorpayOrderId" } }
+      }
+    },
+    "/api/payments/verify": {
+      "post": {
+        "tags": ["Payments"],
+        "summary": "Verify Payment Signature",
+        "description": "Server-side HMAC verification. In one atomic transaction: marks order PAID/CONFIRMED, generates daily token sequence (e.g. A101), inserts status history, and emits Socket.io new_order event.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/VerifyPaymentDto" }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Payment verified and order confirmed" } }
+      }
+    },
+    "/api/webhooks/razorpay": {
+      "post": {
+        "tags": ["Webhooks"],
+        "summary": "Razorpay Payment Webhook",
+        "description": "Handles payment.captured and payment.failed events with HMAC verification and idempotency check.",
+        "responses": { "200": { "description": "Webhook acknowledged" } }
+      }
+    },
+    "/api/me/orders": {
+      "get": {
+        "tags": ["Customer"],
+        "summary": "Customer Global Order History",
+        "security": [{ "bearerAuth": [] }, { "cookieAuth": [] }],
+        "responses": { "200": { "description": "Orders retrieved" } }
+      }
+    },
+    "/api/me/orders/{orderCode}": {
+      "get": {
+        "tags": ["Customer"],
+        "summary": "Track Order by Order Code",
+        "security": [{ "bearerAuth": [] }, { "cookieAuth": [] }],
+        "parameters": [{ "name": "orderCode", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Order tracking details" } }
+      }
+    }
+  }
+}
