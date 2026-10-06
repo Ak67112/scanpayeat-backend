@@ -55,6 +55,23 @@ app.use(
   })
 );
 
+// Serverless route prefix normalizer
+app.use((req, res, next) => {
+  if (
+    req.url.startsWith('/auth') ||
+    req.url.startsWith('/admin') ||
+    req.url.startsWith('/shop') ||
+    req.url.startsWith('/public') ||
+    req.url.startsWith('/orders') ||
+    req.url.startsWith('/payments') ||
+    req.url.startsWith('/webhooks') ||
+    req.url.startsWith('/me')
+  ) {
+    req.url = '/api' + req.url;
+  }
+  next();
+});
+
 // Logging
 if (env.NODE_ENV !== 'test') {
   app.use(morgan('dev'));
