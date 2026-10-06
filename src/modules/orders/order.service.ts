@@ -381,90 +381,48 @@ export class OrderService {
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    // Today (current active shift/business day)
-    const todayOrders = await prisma.order.count({
-      where: { shopId, createdAt: { gte: startOfToday }, paymentStatus: 'PAID' },
-    });
-    const todayRevenueResult = await prisma.order.aggregate({
-      _sum: { totalAmount: true },
-      where: {
-        shopId,
-        createdAt: { gte: startOfToday },
-        paymentStatus: 'PAID',
-      },
-    });
-
-    // Week (last 7 days)
-    const weekOrders = await prisma.order.count({
-      where: { shopId, createdAt: { gte: sevenDaysAgo } },
-    });
-    const weekRevenueResult = await prisma.order.aggregate({
-      _sum: { totalAmount: true },
-      where: {
-        shopId,
-        createdAt: { gte: sevenDaysAgo },
-        paymentStatus: 'PAID',
-      },
-    });
-
-    // Month (current month)
-    const monthOrders = await prisma.order.count({
-      where: { shopId, createdAt: { gte: startOfMonth } },
-    });
-    const monthRevenueResult = await prisma.order.aggregate({
-      _sum: { totalAmount: true },
-      where: {
-        shopId,
-        createdAt: { gte: startOfMonth },
-        paymentStatus: 'PAID',
-      },
-    });
-
-    // Lifetime
-    const totalOrders = await prisma.order.count({
-      where: { shopId },
-    });
-    const totalRevenueResult = await prisma.order.aggregate({
-      _sum: { totalAmount: true },
-      where: {
-        shopId,
-        paymentStatus: 'PAID',
-      },
-    });
-
-    // Active orders in queue (pending, confirmed, preparing, ready)
-    const activeOrders = await prisma.order.count({
-      where: {
-        shopId,
-        orderStatus: { in: ['PENDING', 'CONFIRMED', 'PREPARING', 'READY'] },
-      },
-    });
-
-    // Current token counter
     const todayStr = startOfToday.toISOString().slice(0, 10);
-    const tokenRecord = await prisma.tokenCounter.findFirst({
-      where: { shopId, date: todayStr },
-    });
 
-    const todayRevenue = Number(todayRevenueResult._sum.totalAmount || 0);
-    const weekRevenue = Number(weekRevenueResult._sum.totalAmount || 0);
-    const monthRevenue = Number(monthRevenueResult._sum.totalAmount || 0);
-    const totalRevenue = Number(totalRevenueResult._sum.totalAmount || 0);
+    const [statsResult, tokenRecord] = await Promise.all([
+      prisma.$queryRaw<any[]>`
+        SELECT
+          COUNT(*) FILTER (WHERE "createdAt" >= ${startOfToday} AND "paymentStatus" = 'PAID')::int as today_orders,
+          COALESCE(SUM("totalAmount") FILTER (WHERE "createdAt" >= ${startOfToday} AND "paymentStatus" = 'PAID'), 0)::float as today_revenue,
+          COUNT(*) FILTER (WHERE "createdAt" >= ${sevenDaysAgo} AND "paymentStatus" = 'PAID')::int as week_orders,
+          COALESCE(SUM("totalAmount") FILTER (WHERE "createdAt" >= ${sevenDaysAgo} AND "paymentStatus" = 'PAID'), 0)::float as week_revenue,
+          COUNT(*) FILTER (WHERE "createdAt" >= ${startOfMonth} AND "paymentStatus" = 'PAID')::int as month_orders,
+          COALESCE(SUM("totalAmount") FILTER (WHERE "createdAt" >= ${startOfMonth} AND "paymentStatus" = 'PAID'), 0)::float as month_revenue,
+          COUNT(*)::int as total_orders,
+          COALESCE(SUM("totalAmount") FILTER (WHERE "paymentStatus" = 'PAID'), 0)::float as total_revenue,
+          COUNT(*) FILTER (WHERE "orderStatus" IN ('PENDING', 'CONFIRMED', 'PREPARING', 'READY'))::int as active_orders
+        FROM "orders"
+        WHERE "shopId" = ${shopId};
+      `,
+      prisma.tokenCounter.findFirst({
+        where: { shopId, date: todayStr },
+      }),
+    ]);
+
+    const row = statsResult?.[0] || {};
+    const todayRevenue = Number(row.today_revenue || 0);
+    const weekRevenue = Number(row.week_revenue || 0);
+    const monthRevenue = Number(row.month_revenue || 0);
+    const totalRevenue = Number(row.total_revenue || 0);
 
     return {
-      todayOrders,
+      todayOrders: Number(row.today_orders || 0),
       todayRevenue,
       todaySales: todayRevenue,
-      weekOrders,
+      weekOrders: Number(row.week_orders || 0),
       weekRevenue,
       weekSales: weekRevenue,
-      monthOrders,
+      monthOrders: Number(row.month_orders || 0),
       monthRevenue,
       monthSales: monthRevenue,
-      totalOrders,
+      totalOrders: Number(row.total_orders || 0),
       totalRevenue,
       totalSales: totalRevenue,
-      activeOrders,
+      activeOrders: Number(row.active_orders || 0),
       currentToken: tokenRecord ? tokenRecord.lastSequence : 0,
     };
   }

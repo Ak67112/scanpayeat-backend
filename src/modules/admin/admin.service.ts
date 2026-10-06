@@ -337,59 +337,28 @@ export class AdminService {
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    // Batch 1: Platform entities & Global period aggregations
-    const [
-      totalShops,
-      activeShops,
-      totalShopkeepers,
-      totalCustomers,
-      totalOrders,
-      paidOrders,
-      pendingOrders,
-      revenueResult,
-      todayRevResult,
-      todayOrders,
-      weekRevResult,
-      weekOrders,
-      monthRevResult,
-      monthOrders,
-    ] = await Promise.all([
-      prisma.shop.count(),
-      prisma.shop.count({ where: { isActive: true } }),
-      prisma.shopkeeper.count(),
-      prisma.customer.count(),
-      prisma.order.count(),
-      prisma.order.count({ where: { paymentStatus: 'PAID' } }),
-      prisma.order.count({ where: { paymentStatus: 'PENDING' } }),
-      prisma.order.aggregate({
-        _sum: { totalAmount: true },
-        where: { paymentStatus: 'PAID' },
-      }),
-      prisma.order.aggregate({
-        _sum: { totalAmount: true },
-        where: { paymentStatus: 'PAID', createdAt: { gte: startOfToday } },
-      }),
-      prisma.order.count({ where: { paymentStatus: 'PAID', createdAt: { gte: startOfToday } } }),
-      prisma.order.aggregate({
-        _sum: { totalAmount: true },
-        where: { paymentStatus: 'PAID', createdAt: { gte: sevenDaysAgo } },
-      }),
-      prisma.order.count({ where: { paymentStatus: 'PAID', createdAt: { gte: sevenDaysAgo } } }),
-      prisma.order.aggregate({
-        _sum: { totalAmount: true },
-        where: { paymentStatus: 'PAID', createdAt: { gte: startOfMonth } },
-      }),
-      prisma.order.count({ where: { paymentStatus: 'PAID', createdAt: { gte: startOfMonth } } }),
-    ]);
-
-    // Batch 2: Per-shop sales breakdown metrics
-    const [
-      allShops,
-      paidOrdersByShop,
-      todayOrdersByShop,
-      weekOrdersByShop,
-      monthOrdersByShop,
-    ] = await Promise.all([
+    const [globalStatsRows, entityCountsRows, allShops, shopOrderAggregates] = await Promise.all([
+      prisma.$queryRaw<any[]>`
+        SELECT
+          COUNT(*)::int as total_orders,
+          COUNT(*) FILTER (WHERE "paymentStatus" = 'PAID')::int as paid_orders,
+          COUNT(*) FILTER (WHERE "paymentStatus" = 'PENDING')::int as pending_orders,
+          COALESCE(SUM("totalAmount") FILTER (WHERE "paymentStatus" = 'PAID'), 0)::float as total_revenue,
+          COUNT(*) FILTER (WHERE "createdAt" >= ${startOfToday} AND "paymentStatus" = 'PAID')::int as today_orders,
+          COALESCE(SUM("totalAmount") FILTER (WHERE "createdAt" >= ${startOfToday} AND "paymentStatus" = 'PAID'), 0)::float as today_revenue,
+          COUNT(*) FILTER (WHERE "createdAt" >= ${sevenDaysAgo} AND "paymentStatus" = 'PAID')::int as week_orders,
+          COALESCE(SUM("totalAmount") FILTER (WHERE "createdAt" >= ${sevenDaysAgo} AND "paymentStatus" = 'PAID'), 0)::float as week_revenue,
+          COUNT(*) FILTER (WHERE "createdAt" >= ${startOfMonth} AND "paymentStatus" = 'PAID')::int as month_orders,
+          COALESCE(SUM("totalAmount") FILTER (WHERE "createdAt" >= ${startOfMonth} AND "paymentStatus" = 'PAID'), 0)::float as month_revenue
+        FROM "orders";
+      `,
+      prisma.$queryRaw<any[]>`
+        SELECT
+          (SELECT COUNT(*)::int FROM "shops") as total_shops,
+          (SELECT COUNT(*)::int FROM "shops" WHERE "isActive" = true) as active_shops,
+          (SELECT COUNT(*)::int FROM "shopkeepers") as total_shopkeepers,
+          (SELECT COUNT(*)::int FROM "customers") as total_customers;
+      `,
       prisma.shop.findMany({
         select: {
           id: true,
@@ -407,63 +376,31 @@ export class AdminService {
         },
         orderBy: { createdAt: 'desc' },
       }),
-      prisma.order.groupBy({
-        by: ['shopId'],
-        _sum: { totalAmount: true },
-        _count: { id: true },
-        where: { paymentStatus: 'PAID' },
-      }),
-      prisma.order.groupBy({
-        by: ['shopId'],
-        _sum: { totalAmount: true },
-        _count: { id: true },
-        where: { paymentStatus: 'PAID', createdAt: { gte: startOfToday } },
-      }),
-      prisma.order.groupBy({
-        by: ['shopId'],
-        _sum: { totalAmount: true },
-        _count: { id: true },
-        where: { paymentStatus: 'PAID', createdAt: { gte: sevenDaysAgo } },
-      }),
-      prisma.order.groupBy({
-        by: ['shopId'],
-        _sum: { totalAmount: true },
-        _count: { id: true },
-        where: { paymentStatus: 'PAID', createdAt: { gte: startOfMonth } },
-      }),
+      prisma.$queryRaw<any[]>`
+        SELECT
+          "shopId",
+          COUNT(*) FILTER (WHERE "paymentStatus" = 'PAID')::int as paid_orders,
+          COALESCE(SUM("totalAmount") FILTER (WHERE "paymentStatus" = 'PAID'), 0)::float as total_revenue,
+          COUNT(*) FILTER (WHERE "createdAt" >= ${startOfToday} AND "paymentStatus" = 'PAID')::int as today_orders,
+          COALESCE(SUM("totalAmount") FILTER (WHERE "createdAt" >= ${startOfToday} AND "paymentStatus" = 'PAID'), 0)::float as today_revenue,
+          COUNT(*) FILTER (WHERE "createdAt" >= ${sevenDaysAgo} AND "paymentStatus" = 'PAID')::int as week_orders,
+          COALESCE(SUM("totalAmount") FILTER (WHERE "createdAt" >= ${sevenDaysAgo} AND "paymentStatus" = 'PAID'), 0)::float as week_revenue,
+          COUNT(*) FILTER (WHERE "createdAt" >= ${startOfMonth} AND "paymentStatus" = 'PAID')::int as month_orders,
+          COALESCE(SUM("totalAmount") FILTER (WHERE "createdAt" >= ${startOfMonth} AND "paymentStatus" = 'PAID'), 0)::float as month_revenue
+        FROM "orders"
+        GROUP BY "shopId";
+      `,
     ]);
 
-    const totalRevMap = new Map(
-      paidOrdersByShop.map((p) => [
-        p.shopId,
-        { revenue: Number(p._sum.totalAmount || 0), count: p._count.id },
-      ])
-    );
-    const todayRevMap = new Map(
-      todayOrdersByShop.map((p) => [
-        p.shopId,
-        { revenue: Number(p._sum.totalAmount || 0), count: p._count.id },
-      ])
-    );
-    const weekRevMap = new Map(
-      weekOrdersByShop.map((p) => [
-        p.shopId,
-        { revenue: Number(p._sum.totalAmount || 0), count: p._count.id },
-      ])
-    );
-    const monthRevMap = new Map(
-      monthOrdersByShop.map((p) => [
-        p.shopId,
-        { revenue: Number(p._sum.totalAmount || 0), count: p._count.id },
-      ])
+    const gRow = globalStatsRows?.[0] || {};
+    const eRow = entityCountsRows?.[0] || {};
+
+    const shopAggMap = new Map(
+      (shopOrderAggregates || []).map((row: any) => [row.shopId, row])
     );
 
     const shopSales = allShops.map((s) => {
-      const tot = totalRevMap.get(s.id) || { revenue: 0, count: 0 };
-      const td = todayRevMap.get(s.id) || { revenue: 0, count: 0 };
-      const wk = weekRevMap.get(s.id) || { revenue: 0, count: 0 };
-      const mo = monthRevMap.get(s.id) || { revenue: 0, count: 0 };
-
+      const agg = shopAggMap.get(s.id) || {};
       return {
         shopId: s.id,
         shopName: s.name,
@@ -473,41 +410,41 @@ export class AdminService {
         shopkeepers: s.shopkeepers,
         productsCount: s._count.products,
         totalOrders: s._count.orders,
-        paidOrders: tot.count,
-        totalRevenue: tot.revenue,
-        todaySales: td.revenue,
-        todayOrders: td.count,
-        weekSales: wk.revenue,
-        weekOrders: wk.count,
-        monthSales: mo.revenue,
-        monthOrders: mo.count,
+        paidOrders: Number(agg.paid_orders || 0),
+        totalRevenue: Number(agg.total_revenue || 0),
+        todaySales: Number(agg.today_revenue || 0),
+        todayOrders: Number(agg.today_orders || 0),
+        weekSales: Number(agg.week_revenue || 0),
+        weekOrders: Number(agg.week_orders || 0),
+        monthSales: Number(agg.month_revenue || 0),
+        monthOrders: Number(agg.month_orders || 0),
       };
     });
 
-    const totalRevenue = Number(revenueResult._sum.totalAmount || 0);
-    const todaySales = Number(todayRevResult._sum.totalAmount || 0);
-    const weekSales = Number(weekRevResult._sum.totalAmount || 0);
-    const monthSales = Number(monthRevResult._sum.totalAmount || 0);
+    const totalRevenue = Number(gRow.total_revenue || 0);
+    const todaySales = Number(gRow.today_revenue || 0);
+    const weekSales = Number(gRow.week_revenue || 0);
+    const monthSales = Number(gRow.month_revenue || 0);
 
     return {
-      totalShops,
-      activeShops,
-      totalShopkeepers,
-      totalCustomers,
-      totalOrders,
-      paidOrders,
-      pendingOrders,
+      totalShops: Number(eRow.total_shops || 0),
+      activeShops: Number(eRow.active_shops || 0),
+      totalShopkeepers: Number(eRow.total_shopkeepers || 0),
+      totalCustomers: Number(eRow.total_customers || 0),
+      totalOrders: Number(gRow.total_orders || 0),
+      paidOrders: Number(gRow.paid_orders || 0),
+      pendingOrders: Number(gRow.pending_orders || 0),
       totalRevenue,
-      revenue: totalRevenue, // alias so stats.revenue and stats.totalRevenue both work!
+      revenue: totalRevenue,
       todaySales,
       todayRevenue: todaySales,
-      todayOrders,
+      todayOrders: Number(gRow.today_orders || 0),
       weekSales,
       weekRevenue: weekSales,
-      weekOrders,
+      weekOrders: Number(gRow.week_orders || 0),
       monthSales,
       monthRevenue: monthSales,
-      monthOrders,
+      monthOrders: Number(gRow.month_orders || 0),
       shopSales,
     };
   }
