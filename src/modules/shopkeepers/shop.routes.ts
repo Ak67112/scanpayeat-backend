@@ -99,4 +99,11 @@ router.patch(
   orderController.updateOrderStatus
 );
 
+// --- Discount, Coupons & Milestone Rewards Management ---
+router.get('/reward-rules', orderController.getRewardRule);
+router.put('/reward-rules', orderController.updateRewardRule);
+router.get('/coupons', orderController.getCoupons);
+router.post('/coupons', orderController.createCoupon);
+router.delete('/coupons/:id', orderController.deleteCoupon);
+
 export default router;

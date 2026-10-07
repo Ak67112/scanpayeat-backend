@@ -14,6 +14,7 @@ export const checkoutSchema = z
     customerName: z.string().optional(),
     customerPhone: z.string().optional(),
     notes: z.string().optional(),
+    couponCode: z.string().optional(),
   })
   .refine((data) => data.shopId !== undefined || data.shopSlug !== undefined, {
     message: 'Either shopId or shopSlug must be provided',

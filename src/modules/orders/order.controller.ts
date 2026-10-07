@@ -96,6 +96,78 @@ export class OrderController {
       next(error);
     }
   }
+
+  // Public: Check Discounts & Milestone Rewards
+  async checkDiscounts(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const shopId = req.query.shopId ? parseInt(req.query.shopId as string, 10) : undefined;
+      const shopSlug = req.query.shopSlug as string | undefined;
+      const subtotal = req.query.subtotal ? parseFloat(req.query.subtotal as string) : 0;
+      const couponCode = req.query.couponCode as string | undefined;
+
+      const result = await orderService.checkDiscounts({
+        shopId,
+        shopSlug,
+        subtotal,
+        couponCode,
+      });
+      sendSuccess(res, result, 'Discount eligibility retrieved successfully', 200);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Shopkeeper: Get Reward Rule
+  async getRewardRule(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const rule = await orderService.getShopRewardRule(req.shopId!);
+      sendSuccess(res, { rule }, 'Shop reward rule retrieved successfully', 200);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Shopkeeper: Update Reward Rule
+  async updateRewardRule(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const rule = await orderService.updateShopRewardRule(req.shopId!, req.body);
+      sendSuccess(res, { rule }, 'Shop reward rule updated successfully', 200);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Shopkeeper: Get Coupons
+  async getCoupons(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const coupons = await orderService.getShopCoupons(req.shopId!);
+      sendSuccess(res, { coupons }, 'Coupons retrieved successfully', 200);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Shopkeeper: Create Coupon
+  async createCoupon(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const coupon = await orderService.createShopCoupon(req.shopId!, req.body);
+      sendSuccess(res, { coupon }, 'Coupon created successfully', 201);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Shopkeeper: Delete Coupon
+  async deleteCoupon(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const result = await orderService.deleteShopCoupon(req.shopId!, id);
+      sendSuccess(res, result, 'Coupon deleted successfully', 200);
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const orderController = new OrderController();
+

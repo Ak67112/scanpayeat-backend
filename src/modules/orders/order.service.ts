@@ -81,14 +81,114 @@ export class OrderService {
     });
 
     const tax = new Prisma.Decimal(0); // Configurable tax if needed
-    const totalAmount = subtotal.add(tax);
+    const numSubtotal = Number(subtotal);
+
+    // 3.5 Calculate Discounts (Coupon code & Today's Milestone Customer Rewards)
+    let discountAmount = new Prisma.Decimal(0);
+    let appliedCouponCode: string | null = null;
+    const discountReasons: string[] = [];
+
+    // A) Process Coupon if provided
+    if (dto.couponCode && dto.couponCode.trim()) {
+      const cleanCode = dto.couponCode.trim().toUpperCase();
+      const coupon = await prisma.coupon.findFirst({
+        where: {
+          code: cleanCode,
+          isActive: true,
+          OR: [{ shopId: null }, { shopId: shop.id }],
+        },
+      });
+
+      if (coupon) {
+        if (numSubtotal >= Number(coupon.minOrderAmount)) {
+          let cDiscount = 0;
+          if (coupon.discountType === 'PERCENT') {
+            cDiscount = (numSubtotal * Number(coupon.discountValue)) / 100;
+            if (coupon.maxDiscount) {
+              cDiscount = Math.min(cDiscount, Number(coupon.maxDiscount));
+            }
+          } else {
+            cDiscount = Number(coupon.discountValue);
+          }
+          cDiscount = Math.min(numSubtotal, Math.round(cDiscount * 100) / 100);
+          if (cDiscount > 0) {
+            discountAmount = discountAmount.add(new Prisma.Decimal(cDiscount));
+            appliedCouponCode = cleanCode;
+            discountReasons.push(`Coupon: ${cleanCode} (-₹${cDiscount})`);
+            prisma.coupon
+              .update({
+                where: { id: coupon.id },
+                data: { usageCount: { increment: 1 } },
+              })
+              .catch(() => {});
+          }
+        }
+      }
+    }
+
+    // B) Process Today's Milestone Customer Reward (e.g., 10th customer, 100th customer)
+    const rewardRule = await prisma.shopRewardRule.findUnique({
+      where: { shopId: shop.id },
+    });
+
+    if (rewardRule && rewardRule.isActive && rewardRule.milestoneCount > 0) {
+      const now = new Date();
+      const isEarlyMorning = now.getHours() < 4;
+      const startOfToday = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        isEarlyMorning ? now.getDate() - 1 : now.getDate(),
+        4,
+        0,
+        0,
+        0
+      );
+
+      const todayPaidOrdersCount = await prisma.order.count({
+        where: {
+          shopId: shop.id,
+          createdAt: { gte: startOfToday },
+          paymentStatus: { in: [PaymentStatus.PAID, PaymentStatus.PENDING] },
+        },
+      });
+
+      const todayCustomerNumber = todayPaidOrdersCount + 1;
+      const targetMilestone = rewardRule.milestoneCount;
+
+      const isMilestoneMatch =
+        todayCustomerNumber === targetMilestone ||
+        (targetMilestone > 0 && todayCustomerNumber % targetMilestone === 0);
+
+      if (isMilestoneMatch && numSubtotal >= Number(rewardRule.minOrderAmount)) {
+        const remainingSubtotal = Math.max(0, numSubtotal - Number(discountAmount));
+        const mDiscount = Math.min(remainingSubtotal, Number(rewardRule.discountAmount));
+        if (mDiscount > 0) {
+          discountAmount = discountAmount.add(new Prisma.Decimal(mDiscount));
+          if (!appliedCouponCode) {
+            appliedCouponCode = `MILESTONE-${todayCustomerNumber}`;
+          }
+          discountReasons.push(
+            `Today's ${todayCustomerNumber}th Customer Celebration Reward (-₹${mDiscount})`
+          );
+        }
+      }
+    }
+
+    // Cap total discount to subtotal
+    if (Number(discountAmount) > numSubtotal) {
+      discountAmount = new Prisma.Decimal(numSubtotal);
+    }
+
+    const discountReason = discountReasons.length > 0 ? discountReasons.join(' + ') : null;
+    const finalAmountVal = Math.max(0, numSubtotal - Number(discountAmount) + Number(tax));
+    const totalAmount = new Prisma.Decimal(finalAmountVal);
 
     // 4. Generate unique orderCode
     const orderCode = `ORD${Date.now()}${Math.floor(100 + Math.random() * 900)}`;
 
     // 5. Create Razorpay order
     let razorpayOrderId = `rzp_mock_${Date.now()}`;
-    const amountInPaise = Math.round(Number(totalAmount) * 100);
+    const amountInPaise = Math.round(finalAmountVal * 100);
 
     try {
       const rzpOrder = await razorpayClient.orders.create({
@@ -99,6 +199,8 @@ export class OrderService {
           shopId: String(shop.id),
           shopName: shop.name,
           orderCode,
+          discountAmount: String(discountAmount),
+          couponCode: appliedCouponCode || 'none',
         },
       });
       if (rzpOrder && rzpOrder.id) {
@@ -106,7 +208,6 @@ export class OrderService {
       }
     } catch (rzpErr: any) {
       console.warn('⚠️ Razorpay order creation warning:', rzpErr.message || rzpErr);
-      // In dev/test if razorpay fails or has placeholder keys, continue with fallback mock order ID
       if (env.NODE_ENV === 'production') {
         throw new AppError('Payment gateway communication failed. Please try again.', 502);
       }
@@ -124,6 +225,9 @@ export class OrderService {
           orderStatus: OrderStatus.PENDING,
           paymentStatus: PaymentStatus.PENDING,
           subtotal,
+          discountAmount,
+          couponCode: appliedCouponCode,
+          discountReason,
           tax,
           totalAmount,
           notes: dto.notes ?? null,
@@ -160,6 +264,9 @@ export class OrderService {
         orderCode: order.orderCode,
         total: Number(order.totalAmount),
         subtotal: Number(order.subtotal),
+        discountAmount: Number(order.discountAmount),
+        couponCode: order.couponCode,
+        discountReason: order.discountReason,
         items: order.items,
       },
       razorpayOrder: {
@@ -169,6 +276,9 @@ export class OrderService {
       },
       totalAmount: Number(order.totalAmount),
       subtotal: Number(order.subtotal),
+      discountAmount: Number(order.discountAmount),
+      couponCode: order.couponCode,
+      discountReason: order.discountReason,
       items: order.items,
       razorpayOrderId,
       amountInPaise,
@@ -388,12 +498,15 @@ export class OrderService {
         SELECT
           COUNT(*) FILTER (WHERE "createdAt" >= ${startOfToday} AND "paymentStatus" = 'PAID')::int as today_orders,
           COALESCE(SUM("totalAmount") FILTER (WHERE "createdAt" >= ${startOfToday} AND "paymentStatus" = 'PAID'), 0)::float as today_revenue,
+          COALESCE(SUM("discountAmount") FILTER (WHERE "createdAt" >= ${startOfToday} AND "paymentStatus" = 'PAID'), 0)::float as today_discounts,
+          COALESCE(SUM("subtotal") FILTER (WHERE "createdAt" >= ${startOfToday} AND "paymentStatus" = 'PAID'), 0)::float as today_gross_sales,
           COUNT(*) FILTER (WHERE "createdAt" >= ${sevenDaysAgo} AND "paymentStatus" = 'PAID')::int as week_orders,
           COALESCE(SUM("totalAmount") FILTER (WHERE "createdAt" >= ${sevenDaysAgo} AND "paymentStatus" = 'PAID'), 0)::float as week_revenue,
           COUNT(*) FILTER (WHERE "createdAt" >= ${startOfMonth} AND "paymentStatus" = 'PAID')::int as month_orders,
           COALESCE(SUM("totalAmount") FILTER (WHERE "createdAt" >= ${startOfMonth} AND "paymentStatus" = 'PAID'), 0)::float as month_revenue,
           COUNT(*)::int as total_orders,
           COALESCE(SUM("totalAmount") FILTER (WHERE "paymentStatus" = 'PAID'), 0)::float as total_revenue,
+          COALESCE(SUM("discountAmount") FILTER (WHERE "paymentStatus" = 'PAID'), 0)::float as total_discounts,
           COUNT(*) FILTER (WHERE "orderStatus" IN ('PENDING', 'CONFIRMED', 'PREPARING', 'READY'))::int as active_orders
         FROM "orders"
         WHERE "shopId" = ${shopId};
@@ -405,14 +518,19 @@ export class OrderService {
 
     const row = statsResult?.[0] || {};
     const todayRevenue = Number(row.today_revenue || 0);
+    const todayDiscounts = Number(row.today_discounts || 0);
+    const todayGrossSales = Number(row.today_gross_sales || todayRevenue + todayDiscounts);
     const weekRevenue = Number(row.week_revenue || 0);
     const monthRevenue = Number(row.month_revenue || 0);
     const totalRevenue = Number(row.total_revenue || 0);
+    const totalDiscounts = Number(row.total_discounts || 0);
 
     return {
       todayOrders: Number(row.today_orders || 0),
       todayRevenue,
       todaySales: todayRevenue,
+      todayDiscounts,
+      todayGrossSales,
       weekOrders: Number(row.week_orders || 0),
       weekRevenue,
       weekSales: weekRevenue,
@@ -422,9 +540,261 @@ export class OrderService {
       totalOrders: Number(row.total_orders || 0),
       totalRevenue,
       totalSales: totalRevenue,
+      totalDiscounts,
       activeOrders: Number(row.active_orders || 0),
       currentToken: tokenRecord ? tokenRecord.lastSequence : 0,
     };
+  }
+
+  /**
+   * Public: Check coupon code validity and milestone discount eligibility
+   */
+  async checkDiscounts(params: {
+    shopId?: number;
+    shopSlug?: string;
+    subtotal: number;
+    couponCode?: string;
+  }) {
+    let resolvedShopId = params.shopId;
+    if (!resolvedShopId && params.shopSlug) {
+      const s = await prisma.shop.findFirst({
+        where: {
+          OR: [
+            { slug: params.shopSlug.toLowerCase() },
+            { subdomain: params.shopSlug.toLowerCase() },
+          ],
+        },
+        select: { id: true },
+      });
+      if (s) resolvedShopId = s.id;
+    }
+
+    const subtotal = Math.max(0, Number(params.subtotal || 0));
+    let discountAmount = 0;
+    let appliedCoupon: any = null;
+    let couponError: string | null = null;
+    const reasons: string[] = [];
+
+    // Check coupon
+    if (params.couponCode && params.couponCode.trim()) {
+      const cleanCode = params.couponCode.trim().toUpperCase();
+      const coupon = await prisma.coupon.findFirst({
+        where: {
+          code: cleanCode,
+          isActive: true,
+          OR: resolvedShopId
+            ? [{ shopId: null }, { shopId: resolvedShopId }]
+            : [{ shopId: null }],
+        },
+      });
+
+      if (!coupon) {
+        couponError = 'Invalid or expired coupon code';
+      } else if (subtotal < Number(coupon.minOrderAmount)) {
+        couponError = `Minimum order amount of ₹${coupon.minOrderAmount} required for ${cleanCode}`;
+      } else {
+        let cDiscount = 0;
+        if (coupon.discountType === 'PERCENT') {
+          cDiscount = (subtotal * Number(coupon.discountValue)) / 100;
+          if (coupon.maxDiscount) {
+            cDiscount = Math.min(cDiscount, Number(coupon.maxDiscount));
+          }
+        } else {
+          cDiscount = Number(coupon.discountValue);
+        }
+        cDiscount = Math.min(subtotal, Math.round(cDiscount * 100) / 100);
+        discountAmount += cDiscount;
+        appliedCoupon = {
+          code: cleanCode,
+          discountAmount: cDiscount,
+          type: coupon.discountType,
+          value: Number(coupon.discountValue),
+        };
+        reasons.push(`Coupon: ${cleanCode} (-₹${cDiscount})`);
+      }
+    }
+
+    // Check Milestone rule
+    let milestoneInfo: any = null;
+    if (resolvedShopId) {
+      const rule = await prisma.shopRewardRule.findUnique({
+        where: { shopId: resolvedShopId },
+      });
+
+      if (rule && rule.isActive && rule.milestoneCount > 0) {
+        const now = new Date();
+        const isEarlyMorning = now.getHours() < 4;
+        const startOfToday = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          isEarlyMorning ? now.getDate() - 1 : now.getDate(),
+          4,
+          0,
+          0,
+          0
+        );
+
+        const todayPaidOrdersCount = await prisma.order.count({
+          where: {
+            shopId: resolvedShopId,
+            createdAt: { gte: startOfToday },
+            paymentStatus: { in: [PaymentStatus.PAID, PaymentStatus.PENDING] },
+          },
+        });
+
+        const nextCustomerNumber = todayPaidOrdersCount + 1;
+        const isMilestoneMatch =
+          nextCustomerNumber === rule.milestoneCount ||
+          (rule.milestoneCount > 0 && nextCustomerNumber % rule.milestoneCount === 0);
+
+        const isEligible = isMilestoneMatch && subtotal >= Number(rule.minOrderAmount);
+        let mDiscount = 0;
+        if (isEligible) {
+          const remaining = Math.max(0, subtotal - discountAmount);
+          mDiscount = Math.min(remaining, Number(rule.discountAmount));
+          discountAmount += mDiscount;
+          reasons.push(
+            `Today's ${nextCustomerNumber}th Customer Celebration Reward (-₹${mDiscount})`
+          );
+        }
+
+        milestoneInfo = {
+          active: true,
+          todayCustomerNumber: nextCustomerNumber,
+          targetMilestone: rule.milestoneCount,
+          isEligible,
+          discountAmount: Number(rule.discountAmount),
+          minOrderAmount: Number(rule.minOrderAmount),
+          title: rule.title || `Today's ${rule.milestoneCount}th Customer Reward`,
+        };
+      }
+    }
+
+    discountAmount = Math.min(subtotal, discountAmount);
+    const finalAmount = Math.max(0, subtotal - discountAmount);
+
+    return {
+      subtotal,
+      discountAmount,
+      finalAmount,
+      appliedCoupon,
+      couponError,
+      milestone: milestoneInfo,
+      reason: reasons.length > 0 ? reasons.join(' + ') : null,
+    };
+  }
+
+  /**
+   * Shopkeeper: Get or initialize Milestone Reward Rule
+   */
+  async getShopRewardRule(shopId: number) {
+    let rule = await prisma.shopRewardRule.findUnique({
+      where: { shopId },
+    });
+    if (!rule) {
+      rule = await prisma.shopRewardRule.create({
+        data: {
+          shopId,
+          milestoneCount: 10,
+          discountAmount: 50,
+          minOrderAmount: 100,
+          isActive: true,
+          title: "Today's 10th Customer Celebration Reward",
+        },
+      });
+    }
+    return rule;
+  }
+
+  /**
+   * Shopkeeper: Update Milestone Reward Rule
+   */
+  async updateShopRewardRule(
+    shopId: number,
+    data: {
+      milestoneCount?: number;
+      discountAmount?: number;
+      minOrderAmount?: number;
+      isActive?: boolean;
+      title?: string;
+    }
+  ) {
+    return prisma.shopRewardRule.upsert({
+      where: { shopId },
+      update: {
+        ...(data.milestoneCount !== undefined ? { milestoneCount: data.milestoneCount } : {}),
+        ...(data.discountAmount !== undefined ? { discountAmount: data.discountAmount } : {}),
+        ...(data.minOrderAmount !== undefined ? { minOrderAmount: data.minOrderAmount } : {}),
+        ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
+        ...(data.title ? { title: data.title } : {}),
+      },
+      create: {
+        shopId,
+        milestoneCount: data.milestoneCount ?? 10,
+        discountAmount: data.discountAmount ?? 50,
+        minOrderAmount: data.minOrderAmount ?? 100,
+        isActive: data.isActive ?? true,
+        title: data.title ?? "Today's 10th Customer Celebration Reward",
+      },
+    });
+  }
+
+  /**
+   * Shopkeeper: Get Coupons
+   */
+  async getShopCoupons(shopId: number) {
+    return prisma.coupon.findMany({
+      where: {
+        OR: [{ shopId }, { shopId: null }],
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
+   * Shopkeeper: Create Coupon
+   */
+  async createShopCoupon(
+    shopId: number,
+    data: {
+      code: string;
+      discountType?: string;
+      discountValue: number;
+      minOrderAmount?: number;
+      maxDiscount?: number;
+      isActive?: boolean;
+    }
+  ) {
+    const code = data.code.trim().toUpperCase();
+    const existing = await prisma.coupon.findUnique({ where: { code } });
+    if (existing) {
+      throw new AppError(`Coupon code ${code} already exists`, 400);
+    }
+    return prisma.coupon.create({
+      data: {
+        shopId,
+        code,
+        discountType: data.discountType || 'FIXED',
+        discountValue: data.discountValue,
+        minOrderAmount: data.minOrderAmount ?? 0,
+        maxDiscount: data.maxDiscount ?? null,
+        isActive: data.isActive ?? true,
+      },
+    });
+  }
+
+  /**
+   * Shopkeeper: Delete Coupon
+   */
+  async deleteShopCoupon(shopId: number, id: number) {
+    const coupon = await prisma.coupon.findFirst({
+      where: { id, shopId },
+    });
+    if (!coupon) {
+      throw new AppError('Coupon not found or cannot be deleted', 404);
+    }
+    await prisma.coupon.delete({ where: { id } });
+    return { success: true };
   }
 }
 
