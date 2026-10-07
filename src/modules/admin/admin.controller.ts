@@ -160,6 +160,48 @@ export class AdminController {
       next(error);
     }
   }
+
+  // Coupons
+  async getCoupons(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const shopId = req.query.shopId ? parseInt(req.query.shopId as string, 10) : undefined;
+      const search = req.query.search as string;
+      const coupons = await adminService.getCoupons({ shopId, search });
+      sendSuccess(res, { coupons }, 'Coupons retrieved successfully', 200);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async createCoupon(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const coupon = await adminService.createCoupon(req.body);
+      sendSuccess(res, { coupon }, 'Coupon created successfully', 201);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async deleteCoupon(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const result = await adminService.deleteCoupon(id);
+      sendSuccess(res, result, 'Coupon deleted successfully', 200);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async toggleCoupon(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { isActive } = req.body;
+      const coupon = await adminService.toggleCouponStatus(id, Boolean(isActive));
+      sendSuccess(res, { coupon }, 'Coupon status updated successfully', 200);
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const adminController = new AdminController();

@@ -521,6 +521,91 @@ export class AdminService {
 
     return { total, page, limit, totalPages: Math.ceil(total / limit), transactions };
   }
+
+  /**
+   * Admin: List all coupons across the platform
+   */
+  async getCoupons(params?: { shopId?: number; search?: string }) {
+    const where: any = {};
+    if (params?.shopId) where.shopId = params.shopId;
+    if (params?.search) {
+      where.code = { contains: params.search.toUpperCase() };
+    }
+    const coupons = await prisma.coupon.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const shopIds = Array.from(
+      new Set(coupons.map((c) => c.shopId).filter((id): id is number => id !== null))
+    );
+    const shops =
+      shopIds.length > 0
+        ? await prisma.shop.findMany({
+            where: { id: { in: shopIds } },
+            select: { id: true, name: true, slug: true },
+          })
+        : [];
+    const shopMap = new Map(shops.map((s) => [s.id, s]));
+
+    return coupons.map((c) => ({
+      ...c,
+      isGlobal: c.shopId === null,
+      shop: c.shopId ? shopMap.get(c.shopId) || null : null,
+    }));
+  }
+
+  /**
+   * Admin: Create a new coupon (global if shopId is null/omitted, or store-specific)
+   */
+  async createCoupon(data: {
+    code: string;
+    discountType?: string;
+    discountValue: number;
+    minOrderAmount?: number;
+    maxDiscount?: number;
+    shopId?: number | null;
+    isActive?: boolean;
+  }) {
+    const code = data.code.trim().toUpperCase();
+    const existing = await prisma.coupon.findUnique({ where: { code } });
+    if (existing) {
+      throw new AppError(`Coupon code ${code} already exists`, 400);
+    }
+    return prisma.coupon.create({
+      data: {
+        code,
+        discountType: data.discountType || 'FIXED',
+        discountValue: data.discountValue,
+        minOrderAmount: data.minOrderAmount ?? 0,
+        maxDiscount: data.maxDiscount ?? null,
+        shopId: data.shopId ? Number(data.shopId) : null,
+        isActive: data.isActive ?? true,
+      },
+    });
+  }
+
+  /**
+   * Admin: Delete coupon
+   */
+  async deleteCoupon(id: number) {
+    const coupon = await prisma.coupon.findUnique({ where: { id } });
+    if (!coupon) throw new AppError('Coupon not found', 404);
+    await prisma.coupon.delete({ where: { id } });
+    return { success: true };
+  }
+
+  /**
+   * Admin: Toggle coupon active status
+   */
+  async toggleCouponStatus(id: number, isActive: boolean) {
+    const coupon = await prisma.coupon.findUnique({ where: { id } });
+    if (!coupon) throw new AppError('Coupon not found', 404);
+    return prisma.coupon.update({
+      where: { id },
+      data: { isActive },
+    });
+  }
 }
 
 export const adminService = new AdminService();

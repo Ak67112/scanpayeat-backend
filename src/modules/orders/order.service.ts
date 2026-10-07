@@ -123,55 +123,71 @@ export class OrderService {
               .catch(() => {});
           }
         }
+      } else {
+        const otherCoupon = await prisma.coupon.findFirst({
+          where: { code: cleanCode, isActive: true },
+        });
+        if (otherCoupon && otherCoupon.shopId && otherCoupon.shopId !== shop.id) {
+          throw new AppError(
+            `Coupon '${cleanCode}' is exclusive to another store and cannot be applied here.`,
+            400
+          );
+        }
       }
     }
 
     // B) Process Today's Milestone Customer Reward (e.g., 10th customer, 100th customer)
-    const rewardRule = await prisma.shopRewardRule.findUnique({
-      where: { shopId: shop.id },
-    });
-
-    if (rewardRule && rewardRule.isActive && rewardRule.milestoneCount > 0) {
-      const now = new Date();
-      const isEarlyMorning = now.getHours() < 4;
-      const startOfToday = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        isEarlyMorning ? now.getDate() - 1 : now.getDate(),
-        4,
-        0,
-        0,
-        0
-      );
-
-      const todayPaidOrdersCount = await prisma.order.count({
-        where: {
-          shopId: shop.id,
-          createdAt: { gte: startOfToday },
-          paymentStatus: { in: [PaymentStatus.PAID, PaymentStatus.PENDING] },
-        },
+    try {
+      const rewardRule = await prisma.shopRewardRule.findUnique({
+        where: { shopId: shop.id },
       });
 
-      const todayCustomerNumber = todayPaidOrdersCount + 1;
-      const targetMilestone = rewardRule.milestoneCount;
+      if (rewardRule && rewardRule.isActive && rewardRule.milestoneCount > 0) {
+        const now = new Date();
+        const isEarlyMorning = now.getHours() < 4;
+        const startOfToday = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          isEarlyMorning ? now.getDate() - 1 : now.getDate(),
+          4,
+          0,
+          0,
+          0
+        );
 
-      const isMilestoneMatch =
-        todayCustomerNumber === targetMilestone ||
-        (targetMilestone > 0 && todayCustomerNumber % targetMilestone === 0);
+        const todayPaidOrdersCount = await prisma.order.count({
+          where: {
+            shopId: shop.id,
+            createdAt: { gte: startOfToday },
+            paymentStatus: { in: [PaymentStatus.PAID, PaymentStatus.PENDING] },
+          },
+        });
 
-      if (isMilestoneMatch && numSubtotal >= Number(rewardRule.minOrderAmount)) {
-        const remainingSubtotal = Math.max(0, numSubtotal - Number(discountAmount));
-        const mDiscount = Math.min(remainingSubtotal, Number(rewardRule.discountAmount));
-        if (mDiscount > 0) {
-          discountAmount = discountAmount.add(new Prisma.Decimal(mDiscount));
-          if (!appliedCouponCode) {
-            appliedCouponCode = `MILESTONE-${todayCustomerNumber}`;
+        const todayCustomerNumber = todayPaidOrdersCount + 1;
+        const targetMilestone = rewardRule.milestoneCount;
+
+        const isMilestoneMatch =
+          todayCustomerNumber === targetMilestone ||
+          (targetMilestone > 0 && todayCustomerNumber % targetMilestone === 0);
+
+        if (isMilestoneMatch && numSubtotal >= Number(rewardRule.minOrderAmount)) {
+          const remainingSubtotal = Math.max(0, numSubtotal - Number(discountAmount));
+          const mDiscount = Math.min(remainingSubtotal, Number(rewardRule.discountAmount));
+          if (mDiscount > 0) {
+            discountAmount = discountAmount.add(new Prisma.Decimal(mDiscount));
+            if (!appliedCouponCode) {
+              appliedCouponCode = `MILESTONE-${todayCustomerNumber}`;
+            }
+            discountReasons.push(
+              rewardRule.title
+                ? `${rewardRule.title} (-₹${mDiscount})`
+                : `Today's ${todayCustomerNumber}th Customer Celebration Reward (-₹${mDiscount})`
+            );
           }
-          discountReasons.push(
-            `Today's ${todayCustomerNumber}th Customer Celebration Reward (-₹${mDiscount})`
-          );
         }
       }
+    } catch (err) {
+      console.warn('Milestone evaluation warning:', err);
     }
 
     // Cap total discount to subtotal
@@ -589,7 +605,14 @@ export class OrderService {
       });
 
       if (!coupon) {
-        couponError = 'Invalid or expired coupon code';
+        const otherCoupon = await prisma.coupon.findFirst({
+          where: { code: cleanCode, isActive: true },
+        });
+        if (otherCoupon && otherCoupon.shopId && otherCoupon.shopId !== resolvedShopId) {
+          couponError = `Coupon '${cleanCode}' is exclusive to another restaurant and cannot be applied here`;
+        } else {
+          couponError = 'Invalid or expired coupon code';
+        }
       } else if (subtotal < Number(coupon.minOrderAmount)) {
         couponError = `Minimum order amount of ₹${coupon.minOrderAmount} required for ${cleanCode}`;
       } else {
@@ -617,56 +640,62 @@ export class OrderService {
     // Check Milestone rule
     let milestoneInfo: any = null;
     if (resolvedShopId) {
-      const rule = await prisma.shopRewardRule.findUnique({
-        where: { shopId: resolvedShopId },
-      });
-
-      if (rule && rule.isActive && rule.milestoneCount > 0) {
-        const now = new Date();
-        const isEarlyMorning = now.getHours() < 4;
-        const startOfToday = new Date(
-          now.getFullYear(),
-          now.getMonth(),
-          isEarlyMorning ? now.getDate() - 1 : now.getDate(),
-          4,
-          0,
-          0,
-          0
-        );
-
-        const todayPaidOrdersCount = await prisma.order.count({
-          where: {
-            shopId: resolvedShopId,
-            createdAt: { gte: startOfToday },
-            paymentStatus: { in: [PaymentStatus.PAID, PaymentStatus.PENDING] },
-          },
+      try {
+        const rule = await prisma.shopRewardRule.findUnique({
+          where: { shopId: resolvedShopId },
         });
 
-        const nextCustomerNumber = todayPaidOrdersCount + 1;
-        const isMilestoneMatch =
-          nextCustomerNumber === rule.milestoneCount ||
-          (rule.milestoneCount > 0 && nextCustomerNumber % rule.milestoneCount === 0);
-
-        const isEligible = isMilestoneMatch && subtotal >= Number(rule.minOrderAmount);
-        let mDiscount = 0;
-        if (isEligible) {
-          const remaining = Math.max(0, subtotal - discountAmount);
-          mDiscount = Math.min(remaining, Number(rule.discountAmount));
-          discountAmount += mDiscount;
-          reasons.push(
-            `Today's ${nextCustomerNumber}th Customer Celebration Reward (-₹${mDiscount})`
+        if (rule && rule.isActive && rule.milestoneCount > 0) {
+          const now = new Date();
+          const isEarlyMorning = now.getHours() < 4;
+          const startOfToday = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            isEarlyMorning ? now.getDate() - 1 : now.getDate(),
+            4,
+            0,
+            0,
+            0
           );
-        }
 
-        milestoneInfo = {
-          active: true,
-          todayCustomerNumber: nextCustomerNumber,
-          targetMilestone: rule.milestoneCount,
-          isEligible,
-          discountAmount: Number(rule.discountAmount),
-          minOrderAmount: Number(rule.minOrderAmount),
-          title: rule.title || `Today's ${rule.milestoneCount}th Customer Reward`,
-        };
+          const todayPaidOrdersCount = await prisma.order.count({
+            where: {
+              shopId: resolvedShopId,
+              createdAt: { gte: startOfToday },
+              paymentStatus: { in: [PaymentStatus.PAID, PaymentStatus.PENDING] },
+            },
+          });
+
+          const nextCustomerNumber = todayPaidOrdersCount + 1;
+          const isMilestoneMatch =
+            nextCustomerNumber === rule.milestoneCount ||
+            (rule.milestoneCount > 0 && nextCustomerNumber % rule.milestoneCount === 0);
+
+          const isEligible = isMilestoneMatch && subtotal >= Number(rule.minOrderAmount);
+          let mDiscount = 0;
+          if (isEligible) {
+            const remaining = Math.max(0, subtotal - discountAmount);
+            mDiscount = Math.min(remaining, Number(rule.discountAmount));
+            discountAmount += mDiscount;
+            reasons.push(
+              rule.title
+                ? `${rule.title} (-₹${mDiscount})`
+                : `Today's ${nextCustomerNumber}th Customer Celebration Reward (-₹${mDiscount})`
+            );
+          }
+
+          milestoneInfo = {
+            active: true,
+            todayCustomerNumber: nextCustomerNumber,
+            targetMilestone: rule.milestoneCount,
+            isEligible,
+            discountAmount: Number(rule.discountAmount),
+            minOrderAmount: Number(rule.minOrderAmount),
+            title: rule.title || `Today's ${rule.milestoneCount}th Customer Reward`,
+          };
+        }
+      } catch (err) {
+        console.warn('Milestone discount check warning:', err);
       }
     }
 
@@ -740,19 +769,25 @@ export class OrderService {
   }
 
   /**
-   * Shopkeeper: Get Coupons
+   * Shopkeeper: Get Coupons (Store exclusive + Global platform offers)
    */
   async getShopCoupons(shopId: number) {
-    return prisma.coupon.findMany({
+    const coupons = await prisma.coupon.findMany({
       where: {
         OR: [{ shopId }, { shopId: null }],
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    return coupons.map((c) => ({
+      ...c,
+      isGlobal: c.shopId === null,
+      canDelete: c.shopId === shopId,
+    }));
   }
 
   /**
-   * Shopkeeper: Create Coupon
+   * Shopkeeper: Create Store-Exclusive Coupon
    */
   async createShopCoupon(
     shopId: number,
@@ -770,9 +805,9 @@ export class OrderService {
     if (existing) {
       throw new AppError(`Coupon code ${code} already exists`, 400);
     }
-    return prisma.coupon.create({
+    const coupon = await prisma.coupon.create({
       data: {
-        shopId,
+        shopId, // Tying strictly to this shopkeeper!
         code,
         discountType: data.discountType || 'FIXED',
         discountValue: data.discountValue,
@@ -781,20 +816,60 @@ export class OrderService {
         isActive: data.isActive ?? true,
       },
     });
+
+    return {
+      ...coupon,
+      isGlobal: false,
+      canDelete: true,
+    };
   }
 
   /**
-   * Shopkeeper: Delete Coupon
+   * Shopkeeper: Delete Store-Exclusive Coupon (Cannot delete global coupons)
    */
   async deleteShopCoupon(shopId: number, id: number) {
     const coupon = await prisma.coupon.findFirst({
       where: { id, shopId },
     });
     if (!coupon) {
-      throw new AppError('Coupon not found or cannot be deleted', 404);
+      throw new AppError(
+        'Store can only delete its own store coupons. Global platform coupons cannot be deleted by storekeepers.',
+        403
+      );
     }
     await prisma.coupon.delete({ where: { id } });
     return { success: true };
+  }
+
+  /**
+   * Public: Get available active coupons for a restaurant menu
+   */
+  async getPublicShopCoupons(slug: string) {
+    const shop = await prisma.shop.findUnique({ where: { slug } });
+    if (!shop) {
+      throw new AppError('Shop not found', 404);
+    }
+    const coupons = await prisma.coupon.findMany({
+      where: {
+        isActive: true,
+        OR: [{ shopId: shop.id }, { shopId: null }],
+      },
+      select: {
+        id: true,
+        code: true,
+        discountType: true,
+        discountValue: true,
+        minOrderAmount: true,
+        maxDiscount: true,
+        shopId: true,
+      },
+      orderBy: { discountValue: 'desc' },
+    });
+
+    return coupons.map((c) => ({
+      ...c,
+      isGlobal: c.shopId === null,
+    }));
   }
 }
 

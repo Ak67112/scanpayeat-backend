@@ -71,4 +71,10 @@ router.get('/dashboard', adminController.getDashboard);
 router.get('/orders', adminController.getOrders);
 router.get('/transactions', adminController.getTransactions);
 
+// Coupons (Global & Shop-specific)
+router.get('/coupons', adminController.getCoupons);
+router.post('/coupons', adminController.createCoupon);
+router.delete('/coupons/:id', adminController.deleteCoupon);
+router.patch('/coupons/:id/status', adminController.toggleCoupon);
+
 export default router;

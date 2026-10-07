@@ -167,6 +167,17 @@ export class OrderController {
       next(error);
     }
   }
+
+  // Public: Get Available Coupons for a Shop Menu
+  async getPublicShopCoupons(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const slug = req.params.slug;
+      const coupons = await orderService.getPublicShopCoupons(slug);
+      sendSuccess(res, { coupons }, 'Available coupons retrieved successfully', 200);
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const orderController = new OrderController();
