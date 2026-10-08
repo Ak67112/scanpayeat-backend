@@ -489,6 +489,41 @@ export class OrderService {
   }
 
   /**
+   * Public / Customer: Get single order details by numeric ID or orderCode for live tracking
+   */
+  async getOrderByIdOrCode(idOrCode: string | number) {
+    const isNumeric = !isNaN(Number(idOrCode));
+    const order = await prisma.order.findFirst({
+      where: isNumeric
+        ? { id: parseInt(String(idOrCode), 10) }
+        : { orderCode: String(idOrCode) },
+      include: {
+        shop: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            phone: true,
+            logoUrl: true,
+            address: true,
+          },
+        },
+        items: true,
+        payments: true,
+        statusHistory: {
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+
+    if (!order) {
+      throw new AppError('Order not found.', 404);
+    }
+
+    return order;
+  }
+
+  /**
    * Shopkeeper: Real-time sales statistics (Today, Week, Month, All-Time)
    */
   async getShopStats(shopId: number) {

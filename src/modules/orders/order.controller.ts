@@ -178,6 +178,17 @@ export class OrderController {
       next(error);
     }
   }
+
+  // Public / Tracking: Get single order by numeric ID or orderCode
+  async getOrderById(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { id } = req.params;
+      const order = await orderService.getOrderByIdOrCode(id);
+      sendSuccess(res, { order }, 'Order details retrieved successfully', 200);
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const orderController = new OrderController();

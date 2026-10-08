@@ -46,4 +46,7 @@ router.post(
   orderController.checkout
 );
 
+// Public / Customer live order tracking by ID or orderCode
+router.get('/:id', optionalAuth, orderController.getOrderById);
+
 export default router;
