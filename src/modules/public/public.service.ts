@@ -21,7 +21,19 @@ export class PublicService {
         address: true,
         phone: true,
         qrUrl: true,
+        logoUrl: true,
+        bannerUrl: true,
+        description: true,
+        ambienceImages: true,
         createdAt: true,
+        shopkeepers: {
+          select: {
+            id: true,
+            name: true,
+            avatarUrl: true,
+          },
+          take: 1,
+        },
       },
     });
 

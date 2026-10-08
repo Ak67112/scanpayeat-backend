@@ -49,6 +49,10 @@ model Shop {
   address       String?
   phone         String?
   qrUrl         String?
+  logoUrl       String?
+  bannerUrl     String?
+  description   String?
+  ambienceImages String[]      @default([])
   isActive      Boolean        @default(true)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
@@ -70,6 +74,7 @@ model Shopkeeper {
   name         String
   email        String   @unique
   mobile       String?
+  avatarUrl    String?
   passwordHash String
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
@@ -84,6 +89,7 @@ model Customer {
   name         String
   email        String    @unique
   mobile       String?
+  avatarUrl    String?
   passwordHash String
   isActive     Boolean   @default(true)
   createdAt    DateTime  @default(now())

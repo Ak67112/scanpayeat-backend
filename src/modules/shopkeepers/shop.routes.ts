@@ -9,6 +9,7 @@ import { orderController } from '../orders/order.controller';
 import { upload, uploadImageToStorage } from '../../utils/uploader';
 import { sendSuccess } from '../../utils/response';
 import { AppError } from '../../middleware/error.middleware';
+import { prisma } from '../../config/database';
 import {
   createCategorySchema,
   updateCategorySchema,
@@ -105,5 +106,55 @@ router.put('/reward-rules', orderController.updateRewardRule);
 router.get('/coupons', orderController.getCoupons);
 router.post('/coupons', orderController.createCoupon);
 router.delete('/coupons/:id', orderController.deleteCoupon);
+
+// --- Shop & Shopkeeper Profile Management (Logo, Ambience Images, Bio) ---
+router.get('/profile', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const shop = await prisma.shop.findUnique({
+      where: { id: req.shopId! },
+    });
+    const keeper = await prisma.shopkeeper.findUnique({
+      where: { id: req.user!.id },
+      select: { id: true, name: true, email: true, mobile: true, avatarUrl: true },
+    });
+    sendSuccess(res, { shop, shopkeeper: keeper }, 'Shop profile retrieved successfully', 200);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put('/profile', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { name, address, phone, logoUrl, bannerUrl, description, ambienceImages, keeperName, keeperMobile, keeperAvatarUrl } = req.body;
+
+    const updatedShop = await prisma.shop.update({
+      where: { id: req.shopId! },
+      data: {
+        ...(name && { name }),
+        ...(address !== undefined && { address }),
+        ...(phone !== undefined && { phone }),
+        ...(logoUrl !== undefined && { logoUrl }),
+        ...(bannerUrl !== undefined && { bannerUrl }),
+        ...(description !== undefined && { description }),
+        ...(Array.isArray(ambienceImages) && { ambienceImages }),
+      },
+    });
+
+    if (keeperName || keeperMobile !== undefined || keeperAvatarUrl !== undefined) {
+      await prisma.shopkeeper.update({
+        where: { id: req.user!.id },
+        data: {
+          ...(keeperName && { name: keeperName }),
+          ...(keeperMobile !== undefined && { mobile: keeperMobile }),
+          ...(keeperAvatarUrl !== undefined && { avatarUrl: keeperAvatarUrl }),
+        },
+      });
+    }
+
+    sendSuccess(res, { shop: updatedShop }, 'Shop profile and ambience images updated successfully', 200);
+  } catch (error) {
+    next(error);
+  }
+});
 
 export default router;
