@@ -5,6 +5,7 @@ import {
   generateRefreshToken,
   verifyRefreshToken,
   hashToken,
+  getTokenExpiryForRole,
   JwtUserPayload,
 } from '../../utils/jwt';
 import { AppError } from '../../middleware/error.middleware';
@@ -44,8 +45,9 @@ export class AuthService {
     const accessToken = generateAccessToken(jwtPayload);
     const refreshToken = generateRefreshToken(jwtPayload);
 
-    // Store hashed refresh token
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    // Store hashed refresh token (30 days / 1 month for Customer)
+    const { durationMs } = getTokenExpiryForRole('CUSTOMER');
+    const expiresAt = new Date(Date.now() + durationMs);
     await prisma.refreshToken.create({
       data: {
         tokenHash: hashToken(refreshToken),
@@ -136,8 +138,9 @@ export class AuthService {
     const accessToken = generateAccessToken(jwtPayload);
     const refreshToken = generateRefreshToken(jwtPayload);
 
-    // Save hashed refresh token
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    // Save hashed refresh token (30 days for Customer, 24 hours for Shopkeeper/Admin)
+    const { durationMs } = getTokenExpiryForRole(role);
+    const expiresAt = new Date(Date.now() + durationMs);
     await prisma.refreshToken.create({
       data: {
         tokenHash: hashToken(refreshToken),
@@ -234,18 +237,20 @@ export class AuthService {
     const newAccessToken = generateAccessToken(newPayload);
     const newRefreshToken = generateRefreshToken(newPayload);
 
+    const { durationMs } = getTokenExpiryForRole(payload.role);
     await prisma.refreshToken.create({
       data: {
         tokenHash: hashToken(newRefreshToken),
         userId,
         role: payload.role,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        expiresAt: new Date(Date.now() + durationMs),
       },
     });
 
     return {
       accessToken: newAccessToken,
       refreshToken: newRefreshToken,
+      role: payload.role,
     };
   }
 

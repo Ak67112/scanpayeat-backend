@@ -10,16 +10,44 @@ export interface JwtUserPayload {
   email: string;
 }
 
+/**
+ * Role-based Session Expiry Policy:
+ * - CUSTOMER: 30 days (1 month) persistent session
+ * - SHOPKEEPER & ADMIN: strictly 24 hours daily re-authentication
+ */
+export function getTokenExpiryForRole(role: 'ADMIN' | 'SHOPKEEPER' | 'CUSTOMER' | string): {
+  accessExpiry: string;
+  refreshExpiry: string;
+  durationMs: number;
+} {
+  if (role === 'CUSTOMER') {
+    return {
+      accessExpiry: '30d',
+      refreshExpiry: '30d',
+      durationMs: 30 * 24 * 60 * 60 * 1000, // 30 days (1 month)
+    };
+  }
+
+  // SHOPKEEPER and ADMIN sessions expire every 24 hours
+  return {
+    accessExpiry: '24h',
+    refreshExpiry: '24h',
+    durationMs: 24 * 60 * 60 * 1000, // 24 hours
+  };
+}
+
 export function generateAccessToken(payload: JwtUserPayload): string {
+  const { accessExpiry } = getTokenExpiryForRole(payload.role);
   const options: SignOptions = {
-    expiresIn: env.JWT_ACCESS_EXPIRY as any,
+    expiresIn: accessExpiry as any,
   };
   return jwt.sign(payload, env.JWT_ACCESS_SECRET, options);
 }
 
 export function generateRefreshToken(payload: JwtUserPayload): string {
+  const { refreshExpiry } = getTokenExpiryForRole(payload.role);
   const options: SignOptions = {
-    expiresIn: env.JWT_REFRESH_EXPIRY as any,
+    expiresIn: refreshExpiry as any,
   };
   return jwt.sign(payload, env.JWT_REFRESH_SECRET, options);
 }
@@ -39,7 +67,8 @@ export function hashToken(token: string): string {
 export function setAuthCookies(
   res: Response,
   accessToken: string,
-  refreshToken: string
+  refreshToken: string,
+  role: 'ADMIN' | 'SHOPKEEPER' | 'CUSTOMER' | string = 'CUSTOMER'
 ): void {
   const isProduction = env.NODE_ENV === 'production';
   const cookieOptions = {
@@ -50,16 +79,17 @@ export function setAuthCookies(
     path: '/',
   };
 
-  // 15 minutes for access token
+  const { durationMs } = getTokenExpiryForRole(role);
+
+  // Role-based cookie expiry: 30 days for Customer, 24 hours for Admin/Shopkeeper
   res.cookie('accessToken', accessToken, {
     ...cookieOptions,
-    maxAge: 15 * 60 * 1000,
+    maxAge: durationMs,
   });
 
-  // 7 days for refresh token
   res.cookie('refreshToken', refreshToken, {
     ...cookieOptions,
-    maxAge: 7 * 24 * 60 * 60 * 1000,
+    maxAge: durationMs,
   });
 }
 

@@ -15,8 +15,8 @@ const envSchema = z.object({
 
   JWT_ACCESS_SECRET: z.string().min(16, 'JWT_ACCESS_SECRET must be at least 16 chars'),
   JWT_REFRESH_SECRET: z.string().min(16, 'JWT_REFRESH_SECRET must be at least 16 chars'),
-  JWT_ACCESS_EXPIRY: z.string().default('15m'),
-  JWT_REFRESH_EXPIRY: z.string().default('7d'),
+  JWT_ACCESS_EXPIRY: z.string().default('24h'),
+  JWT_REFRESH_EXPIRY: z.string().default('30d'),
 
   RAZORPAY_KEY_ID: z.string().default('rzp_test_placeholder'),
   RAZORPAY_KEY_SECRET: z.string().default('rzp_test_secret_placeholder'),
@@ -49,8 +49,8 @@ export const env = _env.success
       DATABASE_URL: process.env.DATABASE_URL || 'postgresql://user:password@localhost:5432/scanpayeat?sslmode=prefer',
       JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET || 'super_secret_access_jwt_key_scanpayeat_32_chars_min',
       JWT_REFRESH_SECRET: process.env.JWT_REFRESH_SECRET || 'super_secret_refresh_jwt_key_scanpayeat_32_chars_min',
-      JWT_ACCESS_EXPIRY: process.env.JWT_ACCESS_EXPIRY || '15m',
-      JWT_REFRESH_EXPIRY: process.env.JWT_REFRESH_EXPIRY || '7d',
+      JWT_ACCESS_EXPIRY: process.env.JWT_ACCESS_EXPIRY || '24h',
+      JWT_REFRESH_EXPIRY: process.env.JWT_REFRESH_EXPIRY || '30d',
       RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholder',
       RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET || 'rzp_test_secret_placeholder',
       RAZORPAY_WEBHOOK_SECRET: process.env.RAZORPAY_WEBHOOK_SECRET || 'rzp_webhook_secret_placeholder',

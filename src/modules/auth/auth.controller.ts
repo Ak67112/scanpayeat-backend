@@ -7,7 +7,7 @@ export class AuthController {
   async register(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const result = await authService.registerCustomer(req.body);
-      setAuthCookies(res, result.accessToken, result.refreshToken);
+      setAuthCookies(res, result.accessToken, result.refreshToken, 'CUSTOMER');
       sendSuccess(res, { user: result.user, accessToken: result.accessToken }, 'Registration successful', 201);
     } catch (error) {
       next(error);
@@ -17,7 +17,7 @@ export class AuthController {
   async login(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const result = await authService.login(req.body);
-      setAuthCookies(res, result.accessToken, result.refreshToken);
+      setAuthCookies(res, result.accessToken, result.refreshToken, result.user.role);
       sendSuccess(res, { user: result.user, accessToken: result.accessToken }, 'Login successful', 200);
     } catch (error) {
       next(error);
@@ -28,7 +28,7 @@ export class AuthController {
     try {
       const rawRefreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
       const result = await authService.refreshTokens(rawRefreshToken);
-      setAuthCookies(res, result.accessToken, result.refreshToken);
+      setAuthCookies(res, result.accessToken, result.refreshToken, result.role);
       sendSuccess(res, { accessToken: result.accessToken }, 'Token refreshed successfully', 200);
     } catch (error) {
       next(error);
