@@ -80,15 +80,16 @@ if (env.NODE_ENV !== 'test') {
 // Cookie parser
 app.use(cookieParser());
 
-// Body Parsers with rawBody preservation for Webhook signature verification
+// Body Parsers with rawBody preservation for Webhook signature verification (10MB limit for image uploads)
 app.use(
   express.json({
+    limit: '10mb',
     verify: (req: any, res, buf) => {
       req.rawBody = buf.toString();
     },
   })
 );
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 import path from 'path';
 import fs from 'fs';

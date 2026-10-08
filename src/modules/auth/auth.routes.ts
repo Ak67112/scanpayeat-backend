@@ -60,4 +60,29 @@ router.post(
 
 router.get('/me', authenticate, authController.getMe);
 
+import { upload, uploadImageToStorage } from '../../utils/uploader';
+import { sendSuccess } from '../../utils/response';
+import { AppError } from '../../middleware/error.middleware';
+
+// Public image upload for profile avatars / registration
+router.post(
+  '/upload',
+  upload.single('image'),
+  async (req, res, next) => {
+    try {
+      if (!req.file) {
+        throw new AppError('No image file provided', 400);
+      }
+      const imageUrl = await uploadImageToStorage(
+        req.file.buffer,
+        `avatar_${Date.now()}_${req.file.originalname}`,
+        'scanpayeat/avatars'
+      );
+      sendSuccess(res, { imageUrl }, 'Image uploaded successfully', 200);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 export default router;
