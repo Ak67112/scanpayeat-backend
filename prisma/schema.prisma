@@ -57,6 +57,17 @@ model Shop {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
+  // Custom Shopkeeper Razorpay Gateway
+  razorpayKeyId          String?
+  razorpayKeySecret      String?       // Encrypted with AES-256-GCM
+  isCustomGatewayEnabled Boolean       @default(false)
+
+  // GST & Tax Configuration
+  gstEnabled             Boolean       @default(false)
+  cgstRate               Decimal       @default(2.50) @db.Decimal(5, 2)
+  sgstRate               Decimal       @default(2.50) @db.Decimal(5, 2)
+  gstNumber              String?
+
   shopkeepers   Shopkeeper[]
   categories    Category[]
   products      Product[]
@@ -79,6 +90,7 @@ model Shopkeeper {
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  wallet       ShopkeeperWallet?
 
   @@index([shopId])
   @@map("shopkeepers")
@@ -169,6 +181,11 @@ model Order {
   discountAmount Decimal             @default(0.00) @db.Decimal(10, 2)
   couponCode    String?
   discountReason String?
+  taxableAmount Decimal?             @db.Decimal(10, 2)
+  cgstRate      Decimal              @default(0.00) @db.Decimal(5, 2)
+  sgstRate      Decimal              @default(0.00) @db.Decimal(5, 2)
+  cgstAmount    Decimal              @default(0.00) @db.Decimal(10, 2)
+  sgstAmount    Decimal              @default(0.00) @db.Decimal(10, 2)
   tax           Decimal              @default(0.00) @db.Decimal(10, 2)
   totalAmount   Decimal              @db.Decimal(10, 2)
   notes         String?
@@ -295,4 +312,68 @@ model ShopRewardRule {
 
   @@map("shop_reward_rules")
 }
+
+enum WalletTransactionType {
+  CREDIT
+  DEBIT
+  REFUND
+  ADJUSTMENT
+}
+
+model PaymentGatewaySetting {
+  id                Int      @id @default(autoincrement())
+  provider          String   @default("RAZORPAY")
+  keyId             String
+  keySecret         String   // Encrypted at application layer
+  webhookSecret     String?
+  environment       String   @default("TEST") // "TEST" | "LIVE"
+  currency          String   @default("INR")
+  platformFeeType   String   @default("PERCENT") // "PERCENT" | "FIXED"
+  platformFeeValue  Decimal  @default(2.00) @db.Decimal(10, 2) // e.g. 2% or flat fee
+  isActive          Boolean  @default(true)
+  updatedByAdminId  Int?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("payment_gateway_settings")
+}
+
+model ShopkeeperWallet {
+  id             Int                 @id @default(autoincrement())
+  shopkeeperId   Int                 @unique
+  shopkeeper     Shopkeeper          @relation(fields: [shopkeeperId], references: [id], onDelete: Cascade)
+  balance        Decimal             @default(0.00) @db.Decimal(10, 2)
+  minWalletLimit Decimal             @default(0.00) @db.Decimal(10, 2)
+  isQrEnabled    Boolean             @default(true)
+  totalCredits   Decimal             @default(0.00) @db.Decimal(10, 2)
+  totalDebits    Decimal             @default(0.00) @db.Decimal(10, 2)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  transactions   WalletTransaction[]
+
+  @@map("shopkeeper_wallets")
+}
+
+model WalletTransaction {
+  id              Int                   @id @default(autoincrement())
+  walletId        Int
+  wallet          ShopkeeperWallet      @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  type            WalletTransactionType
+  amount          Decimal               @db.Decimal(10, 2)
+  previousBalance Decimal               @db.Decimal(10, 2)
+  newBalance      Decimal               @db.Decimal(10, 2)
+  reference       String                // e.g. "ADM-CR-1728574892", "ORD1728574892"
+  idempotencyKey  String?               @unique
+  adminId         Int?
+  orderId         Int?
+  notes           String?
+  metadata        Json?
+  createdAt       DateTime              @default(now())
+
+  @@index([walletId])
+  @@index([reference])
+  @@index([createdAt])
+  @@map("wallet_transactions")
+}
+
 

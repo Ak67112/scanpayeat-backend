@@ -8,7 +8,10 @@ import {
   UpdateShopkeeperDto,
 } from './admin.dto';
 import { env } from '../../config/env';
-import { OrderStatus, PaymentStatus } from '@prisma/client';
+import { OrderStatus, PaymentStatus, Prisma } from '@prisma/client';
+import { encryptSecret, decryptSecret, maskSecret } from '../../utils/encryption';
+import { invalidateGatewayCache } from '../../config/razorpay';
+import Razorpay from 'razorpay';
 
 export class AdminService {
   /**
@@ -212,6 +215,13 @@ export class AdminService {
         mobile: dto.mobile,
         shopId: dto.shopId,
         passwordHash,
+        wallet: {
+          create: {
+            balance: 0,
+            minWalletLimit: 0,
+            isQrEnabled: true,
+          },
+        },
       },
       select: {
         id: true,
@@ -224,10 +234,33 @@ export class AdminService {
         shop: {
           select: { id: true, name: true, slug: true, subdomain: true },
         },
+        wallet: {
+          select: {
+            id: true,
+            balance: true,
+            minWalletLimit: true,
+            isQrEnabled: true,
+            totalCredits: true,
+            totalDebits: true,
+          },
+        },
       },
     });
 
-    return shopkeeper;
+    return {
+      ...shopkeeper,
+      wallet: shopkeeper.wallet
+        ? {
+            ...shopkeeper.wallet,
+            balance: Number(shopkeeper.wallet.balance),
+            minWalletLimit: Number(shopkeeper.wallet.minWalletLimit),
+            totalCredits: Number(shopkeeper.wallet.totalCredits),
+            totalDebits: Number(shopkeeper.wallet.totalDebits),
+            isBreached:
+              Number(shopkeeper.wallet.balance) < Number(shopkeeper.wallet.minWalletLimit),
+          }
+        : null,
+    };
   }
 
   async getShopkeepers(params: { shopId?: number; page?: number; limit?: number }) {
@@ -255,14 +288,67 @@ export class AdminService {
           isActive: true,
           createdAt: true,
           shop: {
-            select: { id: true, name: true, slug: true, subdomain: true },
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              subdomain: true,
+              razorpayKeyId: true,
+              isCustomGatewayEnabled: true,
+              gstEnabled: true,
+              cgstRate: true,
+              sgstRate: true,
+              gstNumber: true,
+              razorpayKeySecret: true,
+            },
+          },
+          wallet: {
+            select: {
+              id: true,
+              balance: true,
+              minWalletLimit: true,
+              isQrEnabled: true,
+              totalCredits: true,
+              totalDebits: true,
+              updatedAt: true,
+            },
           },
         },
         orderBy: { createdAt: 'desc' },
       }),
     ]);
 
-    return { total, page, limit, totalPages: Math.ceil(total / limit), shopkeepers };
+    const formatted = shopkeepers.map((sk) => ({
+      ...sk,
+      shop: sk.shop
+        ? {
+            id: sk.shop.id,
+            name: sk.shop.name,
+            slug: sk.shop.slug,
+            subdomain: sk.shop.subdomain,
+            razorpayKeyId: sk.shop.razorpayKeyId,
+            isCustomGatewayEnabled: sk.shop.isCustomGatewayEnabled,
+            gstEnabled: sk.shop.gstEnabled,
+            cgstRate: Number(sk.shop.cgstRate ?? 2.5),
+            sgstRate: Number(sk.shop.sgstRate ?? 2.5),
+            gstNumber: sk.shop.gstNumber,
+            hasKeySecret: Boolean(sk.shop.razorpayKeySecret),
+          }
+        : null,
+      wallet: sk.wallet
+        ? {
+            ...sk.wallet,
+            balance: Number(sk.wallet.balance),
+            minWalletLimit: Number(sk.wallet.minWalletLimit),
+            totalCredits: Number(sk.wallet.totalCredits),
+            totalDebits: Number(sk.wallet.totalDebits),
+            isBreached:
+              Number(sk.wallet.balance) < Number(sk.wallet.minWalletLimit),
+          }
+        : null,
+    }));
+
+    return { total, page, limit, totalPages: Math.ceil(total / limit), shopkeepers: formatted };
   }
 
   async updateShopkeeper(id: number, dto: UpdateShopkeeperDto) {
@@ -605,6 +691,154 @@ export class AdminService {
       where: { id },
       data: { isActive },
     });
+  }
+
+  /**
+   * Admin: Get Shopkeeper's Razorpay Gateway & GST settings
+   */
+  async getShopkeeperGatewayGst(id: number) {
+    const shopkeeper = await prisma.shopkeeper.findUnique({
+      where: { id },
+      include: { shop: true },
+    });
+    if (!shopkeeper || !shopkeeper.shop) {
+      throw new AppError('Shopkeeper or associated shop not found.', 404);
+    }
+    const shop = shopkeeper.shop;
+    return {
+      shopkeeperId: shopkeeper.id,
+      shopkeeperName: shopkeeper.name,
+      shopId: shop.id,
+      shopName: shop.name,
+      isCustomGatewayEnabled: shop.isCustomGatewayEnabled,
+      razorpayKeyId: shop.razorpayKeyId,
+      hasKeySecret: Boolean(shop.razorpayKeySecret),
+      keySecretMasked: shop.razorpayKeySecret
+        ? maskSecret(decryptSecret(shop.razorpayKeySecret))
+        : null,
+      gstEnabled: shop.gstEnabled,
+      gstNumber: shop.gstNumber,
+      cgstRate: Number(shop.cgstRate ?? 2.5),
+      sgstRate: Number(shop.sgstRate ?? 2.5),
+    };
+  }
+
+  /**
+   * Admin: Update Shopkeeper's Razorpay Gateway & GST settings
+   */
+  async updateShopkeeperGatewayGst(
+    id: number,
+    data: {
+      isCustomGatewayEnabled?: boolean;
+      razorpayKeyId?: string | null;
+      razorpayKeySecret?: string | null;
+      gstEnabled?: boolean;
+      gstNumber?: string | null;
+      cgstRate?: number;
+      sgstRate?: number;
+    }
+  ) {
+    const shopkeeper = await prisma.shopkeeper.findUnique({
+      where: { id },
+      include: { shop: true },
+    });
+    if (!shopkeeper || !shopkeeper.shop) {
+      throw new AppError('Shopkeeper or associated shop not found.', 404);
+    }
+
+    const updateData: any = {};
+    if (data.isCustomGatewayEnabled !== undefined) {
+      updateData.isCustomGatewayEnabled = data.isCustomGatewayEnabled;
+    }
+    if (data.razorpayKeyId !== undefined) {
+      updateData.razorpayKeyId = data.razorpayKeyId ? data.razorpayKeyId.trim() : null;
+    }
+    if (data.razorpayKeySecret !== undefined) {
+      if (data.razorpayKeySecret && data.razorpayKeySecret.trim()) {
+        const trimmedSecret = data.razorpayKeySecret.trim();
+        updateData.razorpayKeySecret = encryptSecret(trimmedSecret);
+      } else if (data.razorpayKeySecret === null || data.razorpayKeySecret === '') {
+        // If explicitly cleared
+        updateData.razorpayKeySecret = null;
+      }
+    }
+    if (data.gstEnabled !== undefined) {
+      updateData.gstEnabled = data.gstEnabled;
+    }
+    if (data.gstNumber !== undefined) {
+      updateData.gstNumber = data.gstNumber ? data.gstNumber.trim().toUpperCase() : null;
+    }
+    if (data.cgstRate !== undefined) {
+      updateData.cgstRate = new Prisma.Decimal(Math.max(0, Number(data.cgstRate)));
+    }
+    if (data.sgstRate !== undefined) {
+      updateData.sgstRate = new Prisma.Decimal(Math.max(0, Number(data.sgstRate)));
+    }
+
+    const updatedShop = await prisma.shop.update({
+      where: { id: shopkeeper.shop.id },
+      data: updateData,
+    });
+
+    invalidateGatewayCache();
+
+    return {
+      shopkeeperId: shopkeeper.id,
+      shopkeeperName: shopkeeper.name,
+      shopId: updatedShop.id,
+      shopName: updatedShop.name,
+      isCustomGatewayEnabled: updatedShop.isCustomGatewayEnabled,
+      razorpayKeyId: updatedShop.razorpayKeyId,
+      hasKeySecret: Boolean(updatedShop.razorpayKeySecret),
+      keySecretMasked: updatedShop.razorpayKeySecret
+        ? maskSecret(decryptSecret(updatedShop.razorpayKeySecret))
+        : null,
+      gstEnabled: updatedShop.gstEnabled,
+      gstNumber: updatedShop.gstNumber,
+      cgstRate: Number(updatedShop.cgstRate ?? 2.5),
+      sgstRate: Number(updatedShop.sgstRate ?? 2.5),
+    };
+  }
+
+  /**
+   * Admin: Test Razorpay credentials for a shopkeeper
+   */
+  async testShopkeeperGateway(
+    id: number,
+    data?: { keyId?: string; keySecret?: string }
+  ) {
+    const shopkeeper = await prisma.shopkeeper.findUnique({
+      where: { id },
+      include: { shop: true },
+    });
+    if (!shopkeeper || !shopkeeper.shop) {
+      throw new AppError('Shopkeeper or associated shop not found.', 404);
+    }
+
+    let keyId = data?.keyId?.trim();
+    let keySecret = data?.keySecret?.trim();
+
+    if (!keyId || !keySecret) {
+      keyId = shopkeeper.shop.razorpayKeyId || '';
+      keySecret = shopkeeper.shop.razorpayKeySecret
+        ? decryptSecret(shopkeeper.shop.razorpayKeySecret)
+        : '';
+    }
+
+    if (!keyId || !keySecret) {
+      throw new AppError('Both Key ID and Key Secret are required to test connection.', 400);
+    }
+
+    try {
+      const client = new Razorpay({ key_id: keyId, key_secret: keySecret });
+      await client.orders.all({ count: 1 });
+      return { success: true, message: 'Razorpay API credentials verified successfully!' };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: err?.error?.description || err?.message || 'Connection test failed. Check key credentials.',
+      };
+    }
   }
 }
 

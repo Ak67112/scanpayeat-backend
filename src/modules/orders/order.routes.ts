@@ -46,6 +46,9 @@ router.post(
   orderController.checkout
 );
 
+// Public / Customer Instagram-style Food Story Data
+router.get('/:id/story-data', optionalAuth, orderController.getOrderStoryData);
+
 // Public / Customer live order tracking by ID or orderCode
 router.get('/:id', optionalAuth, orderController.getOrderById);
 

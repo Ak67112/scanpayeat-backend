@@ -6,6 +6,8 @@ import { validateRequest } from '../../middleware/validate.middleware';
 import { categoryController } from '../categories/category.controller';
 import { productController } from '../products/product.controller';
 import { orderController } from '../orders/order.controller';
+import { walletController } from '../wallets/wallet.controller';
+import { shopSettingsController } from './shop-settings.controller';
 import { upload, uploadImageToStorage } from '../../utils/uploader';
 import { sendSuccess } from '../../utils/response';
 import { AppError } from '../../middleware/error.middleware';
@@ -25,6 +27,15 @@ const router = Router();
 
 // Protect all /api/shop routes: Must be authenticated Shopkeeper (or Admin with shop scope), and enforce shopScope
 router.use(authenticate, requireRole('SHOPKEEPER', 'ADMIN'), shopScope);
+
+// --- Shopkeeper Wallet Routes ---
+router.get('/wallet', walletController.getMyWallet);
+router.post('/wallet/recharge/create-order', walletController.createRechargeOrder);
+router.post('/wallet/recharge/verify', walletController.verifyRecharge);
+
+// --- Shopkeeper Tax Settings (Customizable GST, CGST, SGST) ---
+router.get('/tax-settings', shopSettingsController.getTaxSettings);
+router.put('/tax-settings', shopSettingsController.updateTaxSettings);
 
 // --- Category Routes ---
 router.post(

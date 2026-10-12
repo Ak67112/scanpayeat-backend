@@ -1,15 +1,22 @@
 import { prisma } from '../../config/database';
-import { razorpayClient } from '../../config/razorpay';
+import {
+  razorpayClient,
+  getRazorpayClient,
+  getActiveGatewayCredentials,
+  getRazorpayClientForShop,
+} from '../../config/razorpay';
 import { env } from '../../config/env';
 import { AppError } from '../../middleware/error.middleware';
 import { CheckoutDto, UpdateOrderStatusDto } from './order.dto';
 import { emitOrderStatusUpdate } from '../../socket/socket.server';
 import { OrderStatus, PaymentStatus, Prisma, UserRole } from '@prisma/client';
+import { walletService } from '../wallets/wallet.service';
 
 export class OrderService {
   /**
    * Checkout Flow:
    * 1. Re-read all products from DB (never trust frontend prices)
+   * 1.5. Validate Shopkeeper Wallet balance and QR ordering status
    * 2. Verify all products belong to the specified shop and are available
    * 3. Calculate subtotal & total
    * 4. Create pending order & order_item snapshots
@@ -34,6 +41,9 @@ export class OrderService {
     if (!shop || !shop.isActive) {
       throw new AppError('The requested shop is not available for orders.', 404);
     }
+
+    // 1.5 Strict Wallet & QR Payment check (fails if QR disabled or balance < minWalletLimit)
+    await walletService.checkQrPaymentAllowed(shop.id);
 
     // 2. Fetch and Validate Products strictly from DB
     const requestedProductIds = dto.items.map((i) => i.productId);
@@ -80,7 +90,6 @@ export class OrderService {
       };
     });
 
-    const tax = new Prisma.Decimal(0); // Configurable tax if needed
     const numSubtotal = Number(subtotal);
 
     // 3.5 Calculate Discounts (Coupon code & Today's Milestone Customer Rewards)
@@ -196,18 +205,44 @@ export class OrderService {
     }
 
     const discountReason = discountReasons.length > 0 ? discountReasons.join(' + ') : null;
-    const finalAmountVal = Math.max(0, numSubtotal - Number(discountAmount) + Number(tax));
+
+    // 3.8. Calculate taxable amount and GST (CGST + SGST) based on Shop's GST settings
+    const taxableAmountVal = Math.max(0, numSubtotal - Number(discountAmount));
+    let cgstRateVal = 0;
+    let sgstRateVal = 0;
+    let cgstAmountVal = 0;
+    let sgstAmountVal = 0;
+    let totalTaxVal = 0;
+
+    if (shop.gstEnabled) {
+      cgstRateVal = Number(shop.cgstRate ?? 2.5);
+      sgstRateVal = Number(shop.sgstRate ?? 2.5);
+      cgstAmountVal = Math.round(((taxableAmountVal * cgstRateVal) / 100) * 100) / 100;
+      sgstAmountVal = Math.round(((taxableAmountVal * sgstRateVal) / 100) * 100) / 100;
+      totalTaxVal = Math.round((cgstAmountVal + sgstAmountVal) * 100) / 100;
+    }
+
+    const finalAmountVal = Math.round((taxableAmountVal + totalTaxVal) * 100) / 100;
     const totalAmount = new Prisma.Decimal(finalAmountVal);
+    const tax = new Prisma.Decimal(totalTaxVal);
+    const taxableAmount = new Prisma.Decimal(taxableAmountVal);
+    const cgstRate = new Prisma.Decimal(cgstRateVal);
+    const sgstRate = new Prisma.Decimal(sgstRateVal);
+    const cgstAmount = new Prisma.Decimal(cgstAmountVal);
+    const sgstAmount = new Prisma.Decimal(sgstAmountVal);
 
     // 4. Generate unique orderCode
     const orderCode = `ORD${Date.now()}${Math.floor(100 + Math.random() * 900)}`;
 
-    // 5. Create Razorpay order
+    // 5. Create Razorpay order using Shop's custom credentials if configured, otherwise fallback to global
     let razorpayOrderId = `rzp_mock_${Date.now()}`;
     const amountInPaise = Math.round(finalAmountVal * 100);
 
+    const { client: dynamicRzpClient, keyId: activeKeyId, isShopCustom } =
+      await getRazorpayClientForShop(shop.id);
+
     try {
-      const rzpOrder = await razorpayClient.orders.create({
+      const rzpOrder = await dynamicRzpClient.orders.create({
         amount: amountInPaise,
         currency: 'INR',
         receipt: orderCode,
@@ -217,6 +252,7 @@ export class OrderService {
           orderCode,
           discountAmount: String(discountAmount),
           couponCode: appliedCouponCode || 'none',
+          isShopCustomGateway: String(isShopCustom),
         },
       });
       if (rzpOrder && rzpOrder.id) {
@@ -244,6 +280,11 @@ export class OrderService {
           discountAmount,
           couponCode: appliedCouponCode,
           discountReason,
+          taxableAmount,
+          cgstRate,
+          sgstRate,
+          cgstAmount,
+          sgstAmount,
           tax,
           totalAmount,
           notes: dto.notes ?? null,
@@ -283,6 +324,13 @@ export class OrderService {
         discountAmount: Number(order.discountAmount),
         couponCode: order.couponCode,
         discountReason: order.discountReason,
+        taxableAmount: taxableAmountVal,
+        cgstRate: cgstRateVal,
+        sgstRate: sgstRateVal,
+        cgstAmount: cgstAmountVal,
+        sgstAmount: sgstAmountVal,
+        tax: totalTaxVal,
+        gstEnabled: shop.gstEnabled,
         items: order.items,
       },
       razorpayOrder: {
@@ -293,14 +341,22 @@ export class OrderService {
       totalAmount: Number(order.totalAmount),
       subtotal: Number(order.subtotal),
       discountAmount: Number(order.discountAmount),
+      taxableAmount: taxableAmountVal,
+      cgstRate: cgstRateVal,
+      sgstRate: sgstRateVal,
+      cgstAmount: cgstAmountVal,
+      sgstAmount: sgstAmountVal,
+      tax: totalTaxVal,
+      gstEnabled: shop.gstEnabled,
       couponCode: order.couponCode,
       discountReason: order.discountReason,
       items: order.items,
       razorpayOrderId,
       amountInPaise,
       currency: 'INR',
-      keyId: env.RAZORPAY_KEY_ID,
-      razorpayKeyId: env.RAZORPAY_KEY_ID,
+      keyId: activeKeyId,
+      razorpayKeyId: activeKeyId,
+      isShopCustomGateway: isShopCustom,
       shop: {
         id: shop.id,
         name: shop.name,
@@ -521,6 +577,87 @@ export class OrderService {
     }
 
     return order;
+  }
+
+  /**
+   * Public / Customer: Get personalized Instagram-style Food Story data for a completed order
+   */
+  async getOrderStoryData(idOrCode: string | number, requestingCustomerId?: number) {
+    const isNumeric = !isNaN(Number(idOrCode));
+    const order = await prisma.order.findFirst({
+      where: isNumeric
+        ? { id: parseInt(String(idOrCode), 10) }
+        : { orderCode: String(idOrCode) },
+      include: {
+        shop: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            phone: true,
+            logoUrl: true,
+            address: true,
+          },
+        },
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            avatarUrl: true,
+          },
+        },
+        items: {
+          include: {
+            product: {
+              select: {
+                id: true,
+                name: true,
+                imageUrl: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!order) {
+      throw new AppError('Order not found.', 404);
+    }
+
+    // Verify customer ownership if authenticated customer
+    if (requestingCustomerId && order.customerId && order.customerId !== requestingCustomerId) {
+      throw new AppError('Unauthorized access to this food story.', 403);
+    }
+
+    // Security: verify payment or confirmed order
+    if (order.paymentStatus !== 'PAID' && order.orderStatus === 'PENDING') {
+      throw new AppError('Food story can only be generated for paid or confirmed orders.', 400);
+    }
+
+    return {
+      customer: {
+        name: order.customer?.name || order.customerName || 'Food Lover',
+        profileImage: order.customer?.avatarUrl || null,
+      },
+      restaurant: {
+        name: order.shop.name,
+        logo: order.shop.logoUrl || null,
+        location: order.shop.address || 'Gourmet Dine-In',
+      },
+      order: {
+        id: order.id,
+        orderNumber: order.orderCode || String(order.id),
+        tokenNumber: order.tokenNumber || `ORD-${order.id}`,
+        totalAmount: Number(order.totalAmount),
+        createdAt: order.createdAt.toISOString(),
+        items: order.items.map((item) => ({
+          name: item.productName,
+          image: item.product?.imageUrl || null,
+          quantity: item.quantity,
+          unitPrice: Number(item.unitPrice),
+        })),
+      },
+    };
   }
 
   /**

@@ -189,6 +189,18 @@ export class OrderController {
       next(error);
     }
   }
+
+  // Public / Customer: Get personalized Instagram-style Food Story Data
+  async getOrderStoryData(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { id } = req.params;
+      const customerId = req.user?.role === 'CUSTOMER' ? req.user.id : undefined;
+      const storyData = await orderService.getOrderStoryData(id, customerId);
+      sendSuccess(res, storyData, 'Order story data retrieved successfully', 200);
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const orderController = new OrderController();

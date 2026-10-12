@@ -1,5 +1,6 @@
 import { prisma } from '../../config/database';
 import { AppError } from '../../middleware/error.middleware';
+import { walletService } from '../wallets/wallet.service';
 
 export class PublicService {
   /**
@@ -25,6 +26,10 @@ export class PublicService {
         bannerUrl: true,
         description: true,
         ambienceImages: true,
+        gstEnabled: true,
+        cgstRate: true,
+        sgstRate: true,
+        gstNumber: true,
         createdAt: true,
         shopkeepers: {
           select: {
@@ -41,7 +46,13 @@ export class PublicService {
       throw new AppError('Shop not found or currently inactive.', 404);
     }
 
-    return shop;
+    const qrStatus = await walletService.getShopQrStatus(shop.id);
+
+    return {
+      ...shop,
+      isQrActive: qrStatus.isQrActive,
+      qrClosedReason: qrStatus.reason,
+    };
   }
 
   /**

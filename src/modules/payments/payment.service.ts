@@ -1,7 +1,10 @@
 import { prisma } from '../../config/database';
 import {
   verifyRazorpaySignature,
+  verifyRazorpaySignatureAsync,
+  verifyRazorpaySignatureForShop,
   verifyRazorpayWebhookSignature,
+  verifyRazorpayWebhookSignatureAsync,
 } from '../../config/razorpay';
 import { generateDailyToken } from '../../utils/tokenGenerator';
 import { emitNewOrder } from '../../socket/socket.server';
@@ -14,18 +17,7 @@ export class PaymentService {
    * Verify Razorpay Payment Signature and execute atomic success transaction
    */
   async verifyPayment(dto: VerifyPaymentDto) {
-    // 1. Verify cryptographic signature
-    const isValid = verifyRazorpaySignature(
-      dto.razorpay_order_id,
-      dto.razorpay_payment_id,
-      dto.razorpay_signature
-    );
-
-    if (!isValid) {
-      throw new AppError('Payment signature verification failed.', 400);
-    }
-
-    // 2. Fetch payment and order
+    // 1. Fetch payment and order
     const payment = await prisma.payment.findUnique({
       where: { razorpayOrderId: dto.razorpay_order_id },
       include: {
@@ -38,6 +30,18 @@ export class PaymentService {
 
     if (!payment) {
       throw new AppError('Associated payment record not found.', 404);
+    }
+
+    // 2. Verify cryptographic signature using shop-specific credentials or global fallback
+    const isValid = await verifyRazorpaySignatureForShop(
+      payment.shopId,
+      dto.razorpay_order_id,
+      dto.razorpay_payment_id,
+      dto.razorpay_signature
+    );
+
+    if (!isValid) {
+      throw new AppError('Payment signature verification failed.', 400);
     }
 
     // If already processed, return idempotent response
@@ -122,8 +126,8 @@ export class PaymentService {
    * Handle Razorpay Webhooks with Signature Verification and Idempotency
    */
   async handleWebhook(rawBody: string | Buffer, signature: string, payload: any) {
-    // 1. Verify Webhook Signature
-    const isValid = verifyRazorpayWebhookSignature(rawBody, signature);
+    // 1. Verify Webhook Signature using dynamic DB secrets
+    const isValid = await verifyRazorpayWebhookSignatureAsync(rawBody, signature);
     if (!isValid) {
       throw new AppError('Invalid webhook signature.', 400);
     }

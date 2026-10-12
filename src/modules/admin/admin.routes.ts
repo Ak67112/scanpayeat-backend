@@ -11,11 +11,19 @@ import {
   updateShopkeeperSchema,
   updateShopkeeperStatusSchema,
 } from './admin.dto';
+import paymentGatewayRoutes from '../payment-gateway/payment-gateway.routes';
+import walletRoutes from '../wallets/wallet.routes';
 
 const router = Router();
 
 // Protect all admin routes with authentication and ADMIN role requirement
 router.use(authenticate, requireRole('ADMIN'));
+
+// Payment Gateway Settings
+router.use('/payment-gateway', paymentGatewayRoutes);
+
+// Shopkeeper Wallets & Transactions
+router.use('/wallets', walletRoutes);
 
 // Shops
 router.post(
@@ -65,6 +73,9 @@ router.patch(
   adminController.updateShopkeeperStatus
 );
 router.delete('/shopkeepers/:id', adminController.deleteShopkeeper);
+router.get('/shopkeepers/:id/gateway-gst', adminController.getShopkeeperGatewayGst);
+router.put('/shopkeepers/:id/gateway-gst', adminController.updateShopkeeperGatewayGst);
+router.post('/shopkeepers/:id/test-gateway', adminController.testShopkeeperGateway);
 
 // Analytics & Reports
 router.get('/dashboard', adminController.getDashboard);

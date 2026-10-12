@@ -202,6 +202,37 @@ export class AdminController {
       next(error);
     }
   }
+
+  // Shopkeeper Gateway & GST
+  async getShopkeeperGatewayGst(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const result = await adminService.getShopkeeperGatewayGst(id);
+      sendSuccess(res, result, 'Shopkeeper gateway and GST settings retrieved successfully', 200);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateShopkeeperGatewayGst(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const result = await adminService.updateShopkeeperGatewayGst(id, req.body);
+      sendSuccess(res, result, 'Shopkeeper gateway and GST settings updated successfully', 200);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async testShopkeeperGateway(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const result = await adminService.testShopkeeperGateway(id, req.body);
+      sendSuccess(res, result, result.message, 200);
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const adminController = new AdminController();
