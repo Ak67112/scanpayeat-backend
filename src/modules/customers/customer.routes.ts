@@ -29,7 +29,13 @@ router.get('/profile', async (req: Request, res: Response, next: NextFunction): 
         createdAt: true,
       },
     });
-    sendSuccess(res, { customer }, 'Customer profile retrieved', 200);
+    const safeCustomer = customer
+      ? {
+          ...customer,
+          email: customer.email.endsWith('@customer.scanpayeat.local') ? null : customer.email,
+        }
+      : null;
+    sendSuccess(res, { customer: safeCustomer }, 'Customer profile retrieved', 200);
   } catch (err) {
     next(err);
   }
@@ -53,7 +59,13 @@ router.patch('/profile', async (req: Request, res: Response, next: NextFunction)
         avatarUrl: true,
       },
     });
-    sendSuccess(res, { customer }, 'Customer profile updated successfully', 200);
+    const safeCustomer = customer
+      ? {
+          ...customer,
+          email: customer.email.endsWith('@customer.scanpayeat.local') ? null : customer.email,
+        }
+      : null;
+    sendSuccess(res, { customer: safeCustomer }, 'Customer profile updated successfully', 200);
   } catch (err) {
     next(err);
   }

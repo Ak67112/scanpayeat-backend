@@ -2,14 +2,14 @@ import { z } from 'zod';
 
 export const registerSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
-  email: z.string().email('Invalid email address'),
-  mobile: z.string().regex(/^[0-9]{10}$/, 'Mobile must be a 10-digit number').optional(),
+  email: z.string().email('Invalid email address').optional().or(z.literal('')),
+  mobile: z.string().regex(/^[0-9]{10}$/, 'Mobile must be a 10-digit number'),
   avatarUrl: z.string().optional(),
   password: z.string().min(6, 'Password must be at least 6 characters'),
 });
 
 export const loginSchema = z.object({
-  email: z.string().email('Invalid email address'),
+  email: z.string().min(1, 'Email or mobile number is required'),
   password: z.string().min(1, 'Password is required'),
   role: z.enum(['ADMIN', 'SHOPKEEPER', 'CUSTOMER']).optional(),
 });

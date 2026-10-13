@@ -17,8 +17,22 @@ export class AuthService {
    * Register a new customer
    */
   async registerCustomer(dto: RegisterDto) {
+    const rawEmail = dto.email ? dto.email.trim().toLowerCase() : '';
+    const mobile = dto.mobile.trim();
+
+    // Check if mobile already registered
+    const existingMobile = await prisma.customer.findFirst({
+      where: { mobile },
+    });
+    if (existingMobile) {
+      throw new AppError('An account with this mobile number already exists.', 409);
+    }
+
+    // Normalized email or synthetic email for database unique constraint
+    const customerEmail = rawEmail || `${mobile}@customer.scanpayeat.local`;
+
     const existing = await prisma.customer.findUnique({
-      where: { email: dto.email.toLowerCase() },
+      where: { email: customerEmail },
     });
     if (existing) {
       throw new AppError('An account with this email already exists.', 409);
@@ -28,9 +42,9 @@ export class AuthService {
 
     const customer = await prisma.customer.create({
       data: {
-        name: dto.name,
-        email: dto.email.toLowerCase(),
-        mobile: dto.mobile,
+        name: dto.name.trim(),
+        email: customerEmail,
+        mobile,
         avatarUrl: dto.avatarUrl ?? null,
         passwordHash,
       },
@@ -57,11 +71,13 @@ export class AuthService {
       },
     });
 
+    const displayEmail = customer.email.endsWith('@customer.scanpayeat.local') ? null : customer.email;
+
     return {
       user: {
         id: customer.id,
         name: customer.name,
-        email: customer.email,
+        email: displayEmail,
         mobile: customer.mobile,
         avatarUrl: customer.avatarUrl ?? null,
         role: 'CUSTOMER' as UserRole,
@@ -75,7 +91,9 @@ export class AuthService {
    * Unified login for Admin, Shopkeeper, and Customer
    */
   async login(dto: LoginDto) {
-    const email = dto.email.toLowerCase();
+    const rawInput = dto.email.trim();
+    const isMobileFormat = /^[0-9]{10}$/.test(rawInput);
+    const email = rawInput.toLowerCase();
 
     // 1. If role is provided, search specifically in that table; otherwise search Admin -> Shopkeeper -> Customer
     let user: any = null;
@@ -91,8 +109,13 @@ export class AuthService {
     }
 
     if (!user && (!dto.role || dto.role === 'SHOPKEEPER')) {
-      const shopkeeper = await prisma.shopkeeper.findUnique({
-        where: { email },
+      const shopkeeper = await prisma.shopkeeper.findFirst({
+        where: {
+          OR: [
+            { email },
+            ...(isMobileFormat ? [{ mobile: rawInput }] : []),
+          ],
+        },
         include: { shop: true },
       });
       if (shopkeeper) {
@@ -106,7 +129,15 @@ export class AuthService {
     }
 
     if (!user && (!dto.role || dto.role === 'CUSTOMER')) {
-      const customer = await prisma.customer.findUnique({ where: { email } });
+      const customer = await prisma.customer.findFirst({
+        where: {
+          OR: [
+            { email },
+            { mobile: rawInput },
+            ...(isMobileFormat ? [{ email: `${rawInput}@customer.scanpayeat.local` }] : []),
+          ],
+        },
+      });
       if (customer) {
         user = customer;
         role = 'CUSTOMER';
@@ -114,13 +145,13 @@ export class AuthService {
     }
 
     if (!user || !role) {
-      throw new AppError('Invalid email or password.', 401);
+      throw new AppError('Invalid mobile number/email or password.', 401);
     }
 
     // Verify password
     const isPasswordValid = await comparePassword(dto.password, user.passwordHash);
     if (!isPasswordValid) {
-      throw new AppError('Invalid email or password.', 401);
+      throw new AppError('Invalid mobile number/email or password.', 401);
     }
 
     // Verify user is active
@@ -150,11 +181,13 @@ export class AuthService {
       },
     });
 
+    const displayEmail = (role === 'CUSTOMER' && user.email?.endsWith('@customer.scanpayeat.local')) ? null : user.email;
+
     return {
       user: {
         id: user.id,
         name: user.name,
-        email: user.email,
+        email: displayEmail,
         mobile: user.mobile ?? null,
         avatarUrl: (user as any).avatarUrl ?? null,
         role,
@@ -322,7 +355,9 @@ export class AuthService {
         createdAt: true,
       },
     });
-    return { ...customer, role: 'CUSTOMER' };
+    if (!customer) return null;
+    const displayEmail = customer.email.endsWith('@customer.scanpayeat.local') ? null : customer.email;
+    return { ...customer, email: displayEmail, role: 'CUSTOMER' };
   }
 }
 
