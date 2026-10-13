@@ -65,7 +65,8 @@ app.use((req, res, next) => {
     req.url.startsWith('/orders') ||
     req.url.startsWith('/payments') ||
     req.url.startsWith('/webhooks') ||
-    req.url.startsWith('/me')
+    req.url.startsWith('/me') ||
+    req.url.startsWith('/customer')
   ) {
     req.url = '/api' + req.url;
   }
@@ -142,6 +143,7 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/me', customerRoutes);
+app.use('/api/customer', customerRoutes);
 
 // 404 Catch-All
 app.use((req: Request, res: Response) => {
