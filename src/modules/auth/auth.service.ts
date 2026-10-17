@@ -1,4 +1,6 @@
+import crypto from 'crypto';
 import { prisma } from '../../config/database';
+import { env } from '../../config/env';
 import { hashPassword, comparePassword } from '../../utils/password';
 import {
   generateAccessToken,
@@ -9,7 +11,7 @@ import {
   JwtUserPayload,
 } from '../../utils/jwt';
 import { AppError } from '../../middleware/error.middleware';
-import { RegisterDto, LoginDto } from './auth.dto';
+import { RegisterDto, LoginDto, GoogleAuthDto } from './auth.dto';
 import { UserRole } from '@prisma/client';
 
 export class AuthService {
@@ -358,6 +360,143 @@ export class AuthService {
     if (!customer) return null;
     const displayEmail = customer.email.endsWith('@customer.scanpayeat.local') ? null : customer.email;
     return { ...customer, email: displayEmail, role: 'CUSTOMER' };
+  }
+
+  /**
+   * Google OAuth login or auto-registration for Customers
+   */
+  async loginWithGoogle(dto: GoogleAuthDto) {
+    let email: string | undefined;
+    let name: string | undefined;
+    let picture: string | undefined;
+    let googleId: string | undefined;
+
+    if (dto.credential) {
+      // Direct GIS Google ID Token verification
+      try {
+        const tokenInfoRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${dto.credential}`);
+        if (!tokenInfoRes.ok) {
+          throw new Error('Failed to verify Google ID token with Google servers');
+        }
+        const data = await tokenInfoRes.json();
+        if (!data.email) {
+          throw new Error('No email found in Google token response');
+        }
+        email = data.email.toLowerCase().trim();
+        name = data.name || data.given_name || 'Google Diner';
+        picture = data.picture;
+        googleId = data.sub;
+      } catch (err: any) {
+        throw new AppError(err.message || 'Invalid Google credential token', 401);
+      }
+    } else if (dto.code) {
+      // Authorization Code exchange
+      try {
+        const redirectUri = dto.redirectUri || `${env.FRONTEND_URL}/auth/callback`;
+        const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            code: dto.code,
+            client_id: env.GOOGLE_CLIENT_ID,
+            client_secret: env.GOOGLE_CLIENT_SECRET,
+            redirect_uri: redirectUri,
+            grant_type: 'authorization_code',
+          }),
+        });
+
+        const tokenData = await tokenRes.json();
+        if (!tokenRes.ok || !tokenData.access_token) {
+          console.error('Google token exchange error:', tokenData);
+          throw new Error(tokenData.error_description || tokenData.error || 'Failed to exchange authorization code');
+        }
+
+        // Fetch user profile using access_token
+        const userRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+          headers: { Authorization: `Bearer ${tokenData.access_token}` },
+        });
+        const userData = await userRes.json();
+        if (!userRes.ok || !userData.email) {
+          throw new Error('Failed to retrieve user profile from Google');
+        }
+
+        email = userData.email.toLowerCase().trim();
+        name = userData.name || userData.given_name || 'Google Diner';
+        picture = userData.picture;
+        googleId = userData.sub;
+      } catch (err: any) {
+        throw new AppError(err.message || 'Google authorization failed', 401);
+      }
+    }
+
+    if (!email) {
+      throw new AppError('Could not obtain verified email from Google', 400);
+    }
+
+    // Find or create customer
+    let customer = await prisma.customer.findUnique({
+      where: { email },
+    });
+
+    if (customer) {
+      if (!customer.isActive) {
+        throw new AppError('Account is deactivated. Please contact support.', 403);
+      }
+      // Update avatar if not present
+      if (!customer.avatarUrl && picture) {
+        customer = await prisma.customer.update({
+          where: { id: customer.id },
+          data: { avatarUrl: picture },
+        });
+      }
+    } else {
+      // Auto-register customer with Google profile details
+      const randomSecret = crypto.randomBytes(32).toString('hex');
+      const passwordHash = await hashPassword(randomSecret);
+      customer = await prisma.customer.create({
+        data: {
+          name: name || 'Google Diner',
+          email,
+          avatarUrl: picture || null,
+          passwordHash,
+          isActive: true,
+        },
+      });
+    }
+
+    const jwtPayload: JwtUserPayload = {
+      sub: String(customer.id),
+      role: 'CUSTOMER',
+      email: customer.email,
+    };
+
+    const accessToken = generateAccessToken(jwtPayload);
+    const refreshToken = generateRefreshToken(jwtPayload);
+
+    // 30 days session for customer
+    const { durationMs } = getTokenExpiryForRole('CUSTOMER');
+    const expiresAt = new Date(Date.now() + durationMs);
+    await prisma.refreshToken.create({
+      data: {
+        tokenHash: hashToken(refreshToken),
+        userId: customer.id,
+        role: 'CUSTOMER',
+        expiresAt,
+      },
+    });
+
+    return {
+      user: {
+        id: customer.id,
+        name: customer.name,
+        email: customer.email,
+        mobile: customer.mobile,
+        avatarUrl: customer.avatarUrl ?? null,
+        role: 'CUSTOMER' as UserRole,
+      },
+      accessToken,
+      refreshToken,
+    };
   }
 }
 

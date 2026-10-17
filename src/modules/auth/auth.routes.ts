@@ -9,6 +9,7 @@ import {
   refreshTokenSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  googleAuthSchema,
 } from './auth.dto';
 
 const authLimiter = rateLimit({
@@ -36,6 +37,13 @@ router.post(
   authLimiter,
   validateRequest({ body: loginSchema }),
   authController.login
+);
+
+router.post(
+  '/google',
+  authLimiter,
+  validateRequest({ body: googleAuthSchema }),
+  authController.googleLogin
 );
 
 router.post(

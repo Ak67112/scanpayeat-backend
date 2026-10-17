@@ -27,8 +27,19 @@ export const resetPasswordSchema = z.object({
   password: z.string().min(6, 'Password must be at least 6 characters'),
 });
 
+export const googleAuthSchema = z
+  .object({
+    credential: z.string().optional(),
+    code: z.string().optional(),
+    redirectUri: z.string().optional(),
+  })
+  .refine((data) => Boolean(data.credential || data.code), {
+    message: 'Either Google credential or authorization code must be provided',
+  });
+
 export type RegisterDto = z.infer<typeof registerSchema>;
 export type LoginDto = z.infer<typeof loginSchema>;
 export type RefreshTokenDto = z.infer<typeof refreshTokenSchema>;
 export type ForgotPasswordDto = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordDto = z.infer<typeof resetPasswordSchema>;
+export type GoogleAuthDto = z.infer<typeof googleAuthSchema>;

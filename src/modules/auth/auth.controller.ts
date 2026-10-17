@@ -24,6 +24,21 @@ export class AuthController {
     }
   }
 
+  async googleLogin(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const result = await authService.loginWithGoogle(req.body);
+      setAuthCookies(res, result.accessToken, result.refreshToken, 'CUSTOMER');
+      sendSuccess(
+        res,
+        { user: result.user, accessToken: result.accessToken },
+        'Google authentication successful',
+        200
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async refresh(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const rawRefreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
