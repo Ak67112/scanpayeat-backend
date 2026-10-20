@@ -12,6 +12,9 @@ export function initSocketServer(server: HttpServer): SocketIOServer {
         if (
           origin === env.FRONTEND_URL ||
           origin.includes('localhost') ||
+          origin.endsWith('.hotelkada.com') ||
+          origin === 'https://hotelkada.com' ||
+          origin === 'https://www.hotelkada.com' ||
           origin.endsWith('.scanpayeat.com')
         ) {
           return callback(null, true);

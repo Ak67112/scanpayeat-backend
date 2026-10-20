@@ -35,7 +35,7 @@ export class AdminService {
     // Generate shop QR ordering URL
     const baseUrl = env.FRONTEND_URL.includes('localhost')
       ? `http://${subdomain}.localhost:3000`
-      : `https://${subdomain}.scanpayeat.com`;
+      : `https://${subdomain}.hotelkada.com`;
     const qrUrl = baseUrl;
 
     return prisma.shop.create({
@@ -129,7 +129,7 @@ export class AdminService {
 
       const baseUrl = env.FRONTEND_URL.includes('localhost')
         ? `http://${dto.subdomain.toLowerCase()}.localhost:3000`
-        : `https://${dto.subdomain.toLowerCase()}.scanpayeat.com`;
+        : `https://${dto.subdomain.toLowerCase()}.hotelkada.com`;
       qrUrl = baseUrl;
     }
 

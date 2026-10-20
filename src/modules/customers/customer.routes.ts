@@ -32,7 +32,11 @@ router.get('/profile', async (req: Request, res: Response, next: NextFunction): 
     const safeCustomer = customer
       ? {
           ...customer,
-          email: customer.email.endsWith('@customer.scanpayeat.local') ? null : customer.email,
+          email:
+            customer.email.endsWith('@customer.hotelkada.local') ||
+            customer.email.endsWith('@customer.scanpayeat.local')
+              ? null
+              : customer.email,
         }
       : null;
     sendSuccess(res, { customer: safeCustomer }, 'Customer profile retrieved', 200);
@@ -62,7 +66,11 @@ router.patch('/profile', async (req: Request, res: Response, next: NextFunction)
     const safeCustomer = customer
       ? {
           ...customer,
-          email: customer.email.endsWith('@customer.scanpayeat.local') ? null : customer.email,
+          email:
+            customer.email.endsWith('@customer.hotelkada.local') ||
+            customer.email.endsWith('@customer.scanpayeat.local')
+              ? null
+              : customer.email,
         }
       : null;
     sendSuccess(res, { customer: safeCustomer }, 'Customer profile updated successfully', 200);

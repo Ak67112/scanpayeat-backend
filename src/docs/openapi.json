@@ -1,9 +1,9 @@
 {
   "openapi": "3.0.0",
   "info": {
-    "title": "Scan-Pay-Eat Backend API",
+    "title": "Hotelkada Backend API",
     "version": "1.0.0",
-    "description": "Production-ready, multi-tenant QR food ordering platform backend for Scan-Pay-Eat. Supports three user roles: Admin, Shopkeeper, and Customer."
+    "description": "Production-ready, multi-tenant QR food ordering platform backend for Hotelkada. Supports three user roles: Admin, Shopkeeper, and Customer."
   },
   "servers": [
     {
@@ -11,7 +11,7 @@
       "description": "Local Development Server"
     },
     {
-      "url": "https://api.scanpayeat.com",
+      "url": "https://api.hotelkada.com",
       "description": "Production Server"
     }
   ],

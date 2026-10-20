@@ -31,6 +31,9 @@ const allowedOrigins = [
   env.FRONTEND_URL,
   'http://localhost:3000',
   'http://localhost:5173',
+  'https://hotelkada.com',
+  'https://www.hotelkada.com',
+  'https://api.hotelkada.com',
   'https://scanpayeat-frontend.vercel.app',
 ];
 
@@ -41,6 +44,7 @@ app.use(
       if (!origin) return callback(null, true);
       if (
         allowedOrigins.includes(origin) ||
+        origin.endsWith('.hotelkada.com') ||
         origin.endsWith('.scanpayeat.com') ||
         origin.endsWith('.vercel.app') ||
         origin.includes('localhost')

@@ -31,7 +31,7 @@ export class AuthService {
     }
 
     // Normalized email or synthetic email for database unique constraint
-    const customerEmail = rawEmail || `${mobile}@customer.scanpayeat.local`;
+    const customerEmail = rawEmail || `${mobile}@customer.hotelkada.local`;
 
     const existing = await prisma.customer.findUnique({
       where: { email: customerEmail },
@@ -73,7 +73,11 @@ export class AuthService {
       },
     });
 
-    const displayEmail = customer.email.endsWith('@customer.scanpayeat.local') ? null : customer.email;
+    const displayEmail =
+      customer.email.endsWith('@customer.hotelkada.local') ||
+      customer.email.endsWith('@customer.scanpayeat.local')
+        ? null
+        : customer.email;
 
     return {
       user: {
@@ -103,7 +107,12 @@ export class AuthService {
     let shopId: number | undefined;
 
     if (!dto.role || dto.role === 'ADMIN') {
-      const admin = await prisma.admin.findUnique({ where: { email } });
+      let admin = await prisma.admin.findUnique({ where: { email } });
+      if (!admin && email === 'admin@hotelkada.com') {
+        admin = await prisma.admin.findUnique({ where: { email: 'admin@scanpayeat.com' } });
+      } else if (!admin && email === 'admin@scanpayeat.com') {
+        admin = await prisma.admin.findUnique({ where: { email: 'admin@hotelkada.com' } });
+      }
       if (admin) {
         user = admin;
         role = 'ADMIN';
@@ -136,7 +145,12 @@ export class AuthService {
           OR: [
             { email },
             { mobile: rawInput },
-            ...(isMobileFormat ? [{ email: `${rawInput}@customer.scanpayeat.local` }] : []),
+            ...(isMobileFormat
+              ? [
+                  { email: `${rawInput}@customer.hotelkada.local` },
+                  { email: `${rawInput}@customer.scanpayeat.local` },
+                ]
+              : []),
           ],
         },
       });
@@ -183,7 +197,11 @@ export class AuthService {
       },
     });
 
-    const displayEmail = (role === 'CUSTOMER' && user.email?.endsWith('@customer.scanpayeat.local')) ? null : user.email;
+    const displayEmail =
+      role === 'CUSTOMER' &&
+      (user.email?.endsWith('@customer.hotelkada.local') || user.email?.endsWith('@customer.scanpayeat.local'))
+        ? null
+        : user.email;
 
     return {
       user: {
@@ -358,7 +376,11 @@ export class AuthService {
       },
     });
     if (!customer) return null;
-    const displayEmail = customer.email.endsWith('@customer.scanpayeat.local') ? null : customer.email;
+    const displayEmail =
+      customer.email.endsWith('@customer.hotelkada.local') ||
+      customer.email.endsWith('@customer.scanpayeat.local')
+        ? null
+        : customer.email;
     return { ...customer, email: displayEmail, role: 'CUSTOMER' };
   }
 
