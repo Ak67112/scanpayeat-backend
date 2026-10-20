@@ -32,6 +32,7 @@ export const googleAuthSchema = z
     credential: z.string().optional(),
     code: z.string().optional(),
     redirectUri: z.string().optional(),
+    role: z.enum(['ADMIN', 'SHOPKEEPER', 'CUSTOMER']).optional(),
   })
   .refine((data) => Boolean(data.credential || data.code), {
     message: 'Either Google credential or authorization code must be provided',

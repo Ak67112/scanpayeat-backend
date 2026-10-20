@@ -433,7 +433,70 @@ export class AuthService {
       throw new AppError('Could not obtain verified email from Google', 400);
     }
 
-    // Find or create customer
+    // 1. Check if user is a Shopkeeper (or if SHOPKEEPER role was requested)
+    const isShopkeeperRequested = dto.role === 'SHOPKEEPER';
+    const shopkeeper = await prisma.shopkeeper.findUnique({
+      where: { email },
+      include: { shop: true },
+    });
+
+    if (shopkeeper && (!dto.role || isShopkeeperRequested)) {
+      if (!shopkeeper.isActive || !shopkeeper.shop.isActive) {
+        throw new AppError('The shopkeeper account or associated shop is inactive.', 403);
+      }
+      if (!shopkeeper.avatarUrl && picture) {
+        await prisma.shopkeeper.update({
+          where: { id: shopkeeper.id },
+          data: { avatarUrl: picture },
+        });
+      }
+
+      const jwtPayload: JwtUserPayload = {
+        sub: String(shopkeeper.id),
+        role: 'SHOPKEEPER',
+        shopId: shopkeeper.shopId,
+        email: shopkeeper.email,
+      };
+
+      const accessToken = generateAccessToken(jwtPayload);
+      const refreshToken = generateRefreshToken(jwtPayload);
+
+      // 24 hours session for staff
+      const { durationMs } = getTokenExpiryForRole('SHOPKEEPER');
+      const expiresAt = new Date(Date.now() + durationMs);
+      await prisma.refreshToken.create({
+        data: {
+          tokenHash: hashToken(refreshToken),
+          userId: shopkeeper.id,
+          role: 'SHOPKEEPER',
+          expiresAt,
+        },
+      });
+
+      return {
+        user: {
+          id: shopkeeper.id,
+          name: shopkeeper.name,
+          email: shopkeeper.email,
+          mobile: shopkeeper.mobile,
+          avatarUrl: picture || shopkeeper.avatarUrl || null,
+          role: 'SHOPKEEPER' as UserRole,
+          shopId: shopkeeper.shopId,
+          shop: shopkeeper.shop,
+        },
+        accessToken,
+        refreshToken,
+      };
+    }
+
+    if (isShopkeeperRequested && !shopkeeper) {
+      throw new AppError(
+        'No restaurant staff account found with this Google email. Please register or contact support.',
+        404
+      );
+    }
+
+    // 2. Find or create customer
     let customer = await prisma.customer.findUnique({
       where: { email },
     });
@@ -491,7 +554,7 @@ export class AuthService {
         name: customer.name,
         email: customer.email,
         mobile: customer.mobile,
-        avatarUrl: customer.avatarUrl ?? null,
+        avatarUrl: picture || customer.avatarUrl || null,
         role: 'CUSTOMER' as UserRole,
       },
       accessToken,

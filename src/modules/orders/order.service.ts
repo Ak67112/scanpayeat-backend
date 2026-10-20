@@ -684,17 +684,17 @@ export class OrderService {
     const [statsResult, tokenRecord] = await Promise.all([
       prisma.$queryRaw<any[]>`
         SELECT
-          COUNT(*) FILTER (WHERE "createdAt" >= ${startOfToday} AND "paymentStatus" = 'PAID')::int as today_orders,
-          COALESCE(SUM("totalAmount") FILTER (WHERE "createdAt" >= ${startOfToday} AND "paymentStatus" = 'PAID'), 0)::float as today_revenue,
-          COALESCE(SUM("discountAmount") FILTER (WHERE "createdAt" >= ${startOfToday} AND "paymentStatus" = 'PAID'), 0)::float as today_discounts,
-          COALESCE(SUM("subtotal") FILTER (WHERE "createdAt" >= ${startOfToday} AND "paymentStatus" = 'PAID'), 0)::float as today_gross_sales,
-          COUNT(*) FILTER (WHERE "createdAt" >= ${sevenDaysAgo} AND "paymentStatus" = 'PAID')::int as week_orders,
-          COALESCE(SUM("totalAmount") FILTER (WHERE "createdAt" >= ${sevenDaysAgo} AND "paymentStatus" = 'PAID'), 0)::float as week_revenue,
-          COUNT(*) FILTER (WHERE "createdAt" >= ${startOfMonth} AND "paymentStatus" = 'PAID')::int as month_orders,
-          COALESCE(SUM("totalAmount") FILTER (WHERE "createdAt" >= ${startOfMonth} AND "paymentStatus" = 'PAID'), 0)::float as month_revenue,
-          COUNT(*)::int as total_orders,
-          COALESCE(SUM("totalAmount") FILTER (WHERE "paymentStatus" = 'PAID'), 0)::float as total_revenue,
-          COALESCE(SUM("discountAmount") FILTER (WHERE "paymentStatus" = 'PAID'), 0)::float as total_discounts,
+          COUNT(*) FILTER (WHERE "createdAt" >= ${startOfToday} AND "paymentStatus" = 'PAID' AND "orderStatus" != 'CANCELLED')::int as today_orders,
+          COALESCE(SUM("totalAmount") FILTER (WHERE "createdAt" >= ${startOfToday} AND "paymentStatus" = 'PAID' AND "orderStatus" != 'CANCELLED'), 0)::float as today_revenue,
+          COALESCE(SUM("discountAmount") FILTER (WHERE "createdAt" >= ${startOfToday} AND "paymentStatus" = 'PAID' AND "orderStatus" != 'CANCELLED'), 0)::float as today_discounts,
+          COALESCE(SUM("subtotal") FILTER (WHERE "createdAt" >= ${startOfToday} AND "paymentStatus" = 'PAID' AND "orderStatus" != 'CANCELLED'), 0)::float as today_gross_sales,
+          COUNT(*) FILTER (WHERE "createdAt" >= ${sevenDaysAgo} AND "paymentStatus" = 'PAID' AND "orderStatus" != 'CANCELLED')::int as week_orders,
+          COALESCE(SUM("totalAmount") FILTER (WHERE "createdAt" >= ${sevenDaysAgo} AND "paymentStatus" = 'PAID' AND "orderStatus" != 'CANCELLED'), 0)::float as week_revenue,
+          COUNT(*) FILTER (WHERE "createdAt" >= ${startOfMonth} AND "paymentStatus" = 'PAID' AND "orderStatus" != 'CANCELLED')::int as month_orders,
+          COALESCE(SUM("totalAmount") FILTER (WHERE "createdAt" >= ${startOfMonth} AND "paymentStatus" = 'PAID' AND "orderStatus" != 'CANCELLED'), 0)::float as month_revenue,
+          COUNT(*) FILTER (WHERE "orderStatus" != 'CANCELLED')::int as total_orders,
+          COALESCE(SUM("totalAmount") FILTER (WHERE "paymentStatus" = 'PAID' AND "orderStatus" != 'CANCELLED'), 0)::float as total_revenue,
+          COALESCE(SUM("discountAmount") FILTER (WHERE "paymentStatus" = 'PAID' AND "orderStatus" != 'CANCELLED'), 0)::float as total_discounts,
           COUNT(*) FILTER (WHERE "orderStatus" IN ('PENDING', 'CONFIRMED', 'PREPARING', 'READY'))::int as active_orders
         FROM "orders"
         WHERE "shopId" = ${shopId};
