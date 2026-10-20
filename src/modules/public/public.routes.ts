@@ -8,6 +8,7 @@ const router = Router();
 import { upload, uploadImageToStorage } from '../../utils/uploader';
 import { sendSuccess } from '../../utils/response';
 import { AppError } from '../../middleware/error.middleware';
+import { prisma } from '../../config/database';
 
 router.get('/shops/:slug', publicController.getShop);
 router.get('/shops/:slug/menu', publicController.getMenu);
@@ -54,24 +55,32 @@ router.post('/partner-enquiry', async (req, res, next) => {
       throw new AppError('Restaurant name, contact person name, and mobile number are required.', 400);
     }
 
-    console.log('📬 NEW RESTAURANT PARTNER ENQUIRY RECEIVED:', {
-      restaurantName,
-      contactName,
-      mobile,
-      email,
-      city,
-      state,
-      outletType,
-      estimatedTables,
-      message,
-      receivedAt: new Date().toISOString(),
+    const referenceId = `ENQ-${Date.now().toString().slice(-6)}`;
+
+    const enquiry = await prisma.partnerEnquiry.create({
+      data: {
+        referenceId,
+        restaurantName: restaurantName.trim(),
+        contactName: contactName.trim(),
+        mobile: mobile.trim(),
+        email: email && email.trim() ? email.trim() : null,
+        city: city && city.trim() ? city.trim() : null,
+        state: state && state.trim() ? state.trim() : null,
+        outletType: outletType || 'Dine-in Restaurant',
+        estimatedTables: estimatedTables || null,
+        message: message && message.trim() ? message.trim() : null,
+        status: 'PENDING',
+      },
     });
+
+    console.log('📬 NEW RESTAURANT PARTNER ENQUIRY SAVED TO DB:', enquiry);
 
     sendSuccess(
       res,
       {
         received: true,
-        referenceId: `ENQ-${Date.now().toString().slice(-6)}`,
+        referenceId: enquiry.referenceId,
+        enquiry,
         supportEmail: 'contact@hotelkada.com',
       },
       'Thank you! Your restaurant partnership enquiry has been received. Our team will contact you shortly.',

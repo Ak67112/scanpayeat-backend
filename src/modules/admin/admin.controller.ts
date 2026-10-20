@@ -233,6 +233,37 @@ export class AdminController {
       next(error);
     }
   }
+
+  // Partner Enquiries
+  async getPartnerEnquiries(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const enquiries = await adminService.getPartnerEnquiries();
+      sendSuccess(res, { enquiries }, 'Partner enquiries retrieved successfully', 200);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updatePartnerEnquiryStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { status, notes } = req.body;
+      const enquiry = await adminService.updatePartnerEnquiryStatus(id, status, notes);
+      sendSuccess(res, { enquiry }, 'Partner enquiry status updated successfully', 200);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async deletePartnerEnquiry(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const id = parseInt(req.params.id, 10);
+      await adminService.deletePartnerEnquiry(id);
+      sendSuccess(res, null, 'Partner enquiry deleted successfully', 200);
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const adminController = new AdminController();

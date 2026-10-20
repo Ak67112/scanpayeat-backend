@@ -88,4 +88,9 @@ router.post('/coupons', adminController.createCoupon);
 router.delete('/coupons/:id', adminController.deleteCoupon);
 router.patch('/coupons/:id/status', adminController.toggleCoupon);
 
+// Partner Onboarding Enquiries
+router.get('/enquiries', adminController.getPartnerEnquiries);
+router.patch('/enquiries/:id/status', adminController.updatePartnerEnquiryStatus);
+router.delete('/enquiries/:id', adminController.deletePartnerEnquiry);
+
 export default router;

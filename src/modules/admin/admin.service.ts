@@ -870,6 +870,32 @@ export class AdminService {
       };
     }
   }
+
+  async getPartnerEnquiries() {
+    return prisma.partnerEnquiry.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async updatePartnerEnquiryStatus(id: number, status: string, notes?: string) {
+    const existing = await prisma.partnerEnquiry.findUnique({ where: { id } });
+    if (!existing) throw new AppError('Partner enquiry not found', 404);
+
+    return prisma.partnerEnquiry.update({
+      where: { id },
+      data: {
+        status,
+        ...(notes !== undefined ? { notes } : {}),
+      },
+    });
+  }
+
+  async deletePartnerEnquiry(id: number) {
+    const existing = await prisma.partnerEnquiry.findUnique({ where: { id } });
+    if (!existing) throw new AppError('Partner enquiry not found', 404);
+
+    return prisma.partnerEnquiry.delete({ where: { id } });
+  }
 }
 
 export const adminService = new AdminService();
