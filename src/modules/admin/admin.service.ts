@@ -44,6 +44,8 @@ export class AdminService {
         slug,
         subdomain,
         address: dto.address,
+        state: dto.state,
+        district: dto.district,
         phone: dto.phone,
         qrUrl,
       },
@@ -622,27 +624,44 @@ export class AdminService {
       orderBy: { createdAt: 'desc' },
     });
 
-    const shopIds = Array.from(
-      new Set(coupons.map((c) => c.shopId).filter((id): id is number => id !== null))
-    );
+    const allShopIds = new Set<number>();
+    coupons.forEach((c) => {
+      if (c.shopId) allShopIds.add(c.shopId);
+      if (Array.isArray(c.applicableShopIds)) {
+        c.applicableShopIds.forEach((id) => allShopIds.add(id));
+      }
+    });
+
     const shops =
-      shopIds.length > 0
+      allShopIds.size > 0
         ? await prisma.shop.findMany({
-            where: { id: { in: shopIds } },
-            select: { id: true, name: true, slug: true },
+            where: { id: { in: Array.from(allShopIds) } },
+            select: { id: true, name: true, slug: true, state: true, district: true },
           })
         : [];
     const shopMap = new Map(shops.map((s) => [s.id, s]));
 
-    return coupons.map((c) => ({
-      ...c,
-      isGlobal: c.shopId === null,
-      shop: c.shopId ? shopMap.get(c.shopId) || null : null,
-    }));
+    return coupons.map((c) => {
+      const applicableShops = Array.isArray(c.applicableShopIds)
+        ? c.applicableShopIds.map((id) => shopMap.get(id)).filter(Boolean)
+        : [];
+      const isGlobal =
+        c.shopId === null &&
+        (!c.applicableShopIds || c.applicableShopIds.length === 0) &&
+        !c.targetState &&
+        !c.targetDistrict;
+
+      return {
+        ...c,
+        isGlobal,
+        shop: c.shopId ? shopMap.get(c.shopId) || null : null,
+        applicableShops,
+      };
+    });
   }
 
   /**
-   * Admin: Create a new coupon (global if shopId is null/omitted, or store-specific)
+   * Admin: Create a new coupon (global, state/district targeted, or selective stores)
    */
   async createCoupon(data: {
     code: string;
@@ -651,6 +670,9 @@ export class AdminService {
     minOrderAmount?: number;
     maxDiscount?: number;
     shopId?: number | null;
+    targetState?: string | null;
+    targetDistrict?: string | null;
+    applicableShopIds?: number[];
     isActive?: boolean;
   }) {
     const code = data.code.trim().toUpperCase();
@@ -658,6 +680,11 @@ export class AdminService {
     if (existing) {
       throw new AppError(`Coupon code ${code} already exists`, 400);
     }
+
+    const cleanShopIds = Array.isArray(data.applicableShopIds)
+      ? data.applicableShopIds.map((id) => Number(id)).filter((id) => !isNaN(id) && id > 0)
+      : [];
+
     return prisma.coupon.create({
       data: {
         code,
@@ -666,6 +693,9 @@ export class AdminService {
         minOrderAmount: data.minOrderAmount ?? 0,
         maxDiscount: data.maxDiscount ?? null,
         shopId: data.shopId ? Number(data.shopId) : null,
+        targetState: data.targetState ? String(data.targetState).trim() : null,
+        targetDistrict: data.targetDistrict ? String(data.targetDistrict).trim() : null,
+        applicableShopIds: cleanShopIds,
         isActive: data.isActive ?? true,
       },
     });

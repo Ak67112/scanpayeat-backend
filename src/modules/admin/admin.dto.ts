@@ -11,6 +11,8 @@ export const createShopSchema = z.object({
     .min(2)
     .regex(/^[a-z0-9-]+$/, 'Subdomain must be lowercase alphanumeric with hyphens'),
   address: z.string().optional(),
+  state: z.string().optional(),
+  district: z.string().optional(),
   phone: z.string().optional(),
 });
 
@@ -27,6 +29,8 @@ export const updateShopSchema = z.object({
     .regex(/^[a-z0-9-]+$/, 'Subdomain must be lowercase alphanumeric with hyphens')
     .optional(),
   address: z.string().optional(),
+  state: z.string().optional(),
+  district: z.string().optional(),
   phone: z.string().optional(),
   isActive: z.boolean().optional(),
 });

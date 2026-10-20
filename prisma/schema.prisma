@@ -47,6 +47,8 @@ model Shop {
   slug          String         @unique
   subdomain     String         @unique
   address       String?
+  state         String?
+  district      String?
   phone         String?
   qrUrl         String?
   logoUrl       String?
@@ -290,9 +292,12 @@ model Coupon {
   minOrderAmount Decimal   @default(0.00) @db.Decimal(10, 2)
   maxDiscount    Decimal?  @db.Decimal(10, 2)
   isActive       Boolean   @default(true)
-  expiresAt      DateTime?
-  usageCount     Int       @default(0)
-  createdAt      DateTime  @default(now())
+  expiresAt         DateTime?
+  usageCount        Int       @default(0)
+  targetState       String?
+  targetDistrict    String?
+  applicableShopIds Int[]     @default([])
+  createdAt         DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
   @@index([shopId])

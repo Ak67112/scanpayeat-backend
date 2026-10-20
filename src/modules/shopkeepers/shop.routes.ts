@@ -136,13 +136,15 @@ router.get('/profile', async (req: Request, res: Response, next: NextFunction): 
 
 router.put('/profile', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { name, address, phone, logoUrl, bannerUrl, description, ambienceImages, keeperName, keeperMobile, keeperAvatarUrl } = req.body;
+    const { name, address, state, district, phone, logoUrl, bannerUrl, description, ambienceImages, keeperName, keeperMobile, keeperAvatarUrl } = req.body;
 
     const updatedShop = await prisma.shop.update({
       where: { id: req.shopId! },
       data: {
         ...(name && { name }),
         ...(address !== undefined && { address }),
+        ...(state !== undefined && { state }),
+        ...(district !== undefined && { district }),
         ...(phone !== undefined && { phone }),
         ...(logoUrl !== undefined && { logoUrl }),
         ...(bannerUrl !== undefined && { bannerUrl }),

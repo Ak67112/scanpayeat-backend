@@ -12,6 +12,75 @@ import { emitOrderStatusUpdate } from '../../socket/socket.server';
 import { OrderStatus, PaymentStatus, Prisma, UserRole } from '@prisma/client';
 import { walletService } from '../wallets/wallet.service';
 
+/**
+ * Helper to check whether a coupon is applicable for a specific shop
+ * Supports Global, State-wide, District-wide, Single-Store, and Multi-Store selections.
+ */
+export function isCouponValidForShop(
+  coupon: any,
+  shop: { id: number; state?: string | null; district?: string | null }
+): { valid: boolean; reason?: string } {
+  if (!coupon.isActive) {
+    return { valid: false, reason: 'Coupon is no longer active' };
+  }
+  if (coupon.expiresAt && new Date(coupon.expiresAt) < new Date()) {
+    return { valid: false, reason: 'Coupon has expired' };
+  }
+
+  // 1. If explicit selective multi-shop array is set
+  if (Array.isArray(coupon.applicableShopIds) && coupon.applicableShopIds.length > 0) {
+    if (coupon.applicableShopIds.includes(shop.id)) {
+      return { valid: true };
+    }
+    return {
+      valid: false,
+      reason: `Coupon '${coupon.code}' is only valid at selected partner restaurants`,
+    };
+  }
+
+  // 2. If single shopId is set
+  if (coupon.shopId) {
+    if (coupon.shopId === shop.id) {
+      return { valid: true };
+    }
+    return {
+      valid: false,
+      reason: `Coupon '${coupon.code}' is exclusive to another restaurant and cannot be applied here`,
+    };
+  }
+
+  // 3. If targetDistrict is set
+  if (coupon.targetDistrict && coupon.targetDistrict.trim()) {
+    if (
+      shop.district &&
+      shop.district.trim().toLowerCase() === coupon.targetDistrict.trim().toLowerCase()
+    ) {
+      return { valid: true };
+    }
+    return {
+      valid: false,
+      reason: `Coupon '${coupon.code}' is valid only for restaurants in ${coupon.targetDistrict}`,
+    };
+  }
+
+  // 4. If targetState is set
+  if (coupon.targetState && coupon.targetState.trim()) {
+    if (
+      shop.state &&
+      shop.state.trim().toLowerCase() === coupon.targetState.trim().toLowerCase()
+    ) {
+      return { valid: true };
+    }
+    return {
+      valid: false,
+      reason: `Coupon '${coupon.code}' is valid only for restaurants in ${coupon.targetState}`,
+    };
+  }
+
+  // 5. Global platform coupon
+  return { valid: true };
+}
+
 export class OrderService {
   /**
    * Checkout Flow:
@@ -100,47 +169,40 @@ export class OrderService {
     // A) Process Coupon if provided
     if (dto.couponCode && dto.couponCode.trim()) {
       const cleanCode = dto.couponCode.trim().toUpperCase();
-      const coupon = await prisma.coupon.findFirst({
-        where: {
-          code: cleanCode,
-          isActive: true,
-          OR: [{ shopId: null }, { shopId: shop.id }],
-        },
+      const coupon = await prisma.coupon.findUnique({
+        where: { code: cleanCode },
       });
 
-      if (coupon) {
-        if (numSubtotal >= Number(coupon.minOrderAmount)) {
-          let cDiscount = 0;
-          if (coupon.discountType === 'PERCENT') {
-            cDiscount = (numSubtotal * Number(coupon.discountValue)) / 100;
-            if (coupon.maxDiscount) {
-              cDiscount = Math.min(cDiscount, Number(coupon.maxDiscount));
-            }
-          } else {
-            cDiscount = Number(coupon.discountValue);
+      if (!coupon) {
+        throw new AppError('Invalid or expired coupon code.', 400);
+      }
+
+      const match = isCouponValidForShop(coupon, shop);
+      if (!match.valid) {
+        throw new AppError(match.reason || `Coupon '${cleanCode}' is not applicable at this restaurant.`, 400);
+      }
+
+      if (numSubtotal >= Number(coupon.minOrderAmount)) {
+        let cDiscount = 0;
+        if (coupon.discountType === 'PERCENT') {
+          cDiscount = (numSubtotal * Number(coupon.discountValue)) / 100;
+          if (coupon.maxDiscount) {
+            cDiscount = Math.min(cDiscount, Number(coupon.maxDiscount));
           }
-          cDiscount = Math.min(numSubtotal, Math.round(cDiscount * 100) / 100);
-          if (cDiscount > 0) {
-            discountAmount = discountAmount.add(new Prisma.Decimal(cDiscount));
-            appliedCouponCode = cleanCode;
-            discountReasons.push(`Coupon: ${cleanCode} (-₹${cDiscount})`);
-            prisma.coupon
-              .update({
-                where: { id: coupon.id },
-                data: { usageCount: { increment: 1 } },
-              })
-              .catch(() => {});
-          }
+        } else {
+          cDiscount = Number(coupon.discountValue);
         }
-      } else {
-        const otherCoupon = await prisma.coupon.findFirst({
-          where: { code: cleanCode, isActive: true },
-        });
-        if (otherCoupon && otherCoupon.shopId && otherCoupon.shopId !== shop.id) {
-          throw new AppError(
-            `Coupon '${cleanCode}' is exclusive to another store and cannot be applied here.`,
-            400
-          );
+        cDiscount = Math.min(numSubtotal, Math.round(cDiscount * 100) / 100);
+        if (cDiscount > 0) {
+          discountAmount = discountAmount.add(new Prisma.Decimal(cDiscount));
+          appliedCouponCode = cleanCode;
+          discountReasons.push(`Coupon: ${cleanCode} (-₹${cDiscount})`);
+          prisma.coupon
+            .update({
+              where: { id: coupon.id },
+              data: { usageCount: { increment: 1 } },
+            })
+            .catch(() => {});
         }
       }
     }
@@ -766,46 +828,54 @@ export class OrderService {
     // Check coupon
     if (params.couponCode && params.couponCode.trim()) {
       const cleanCode = params.couponCode.trim().toUpperCase();
-      const coupon = await prisma.coupon.findFirst({
-        where: {
-          code: cleanCode,
-          isActive: true,
-          OR: resolvedShopId
-            ? [{ shopId: null }, { shopId: resolvedShopId }]
-            : [{ shopId: null }],
-        },
+      const coupon = await prisma.coupon.findUnique({
+        where: { code: cleanCode },
       });
 
       if (!coupon) {
-        const otherCoupon = await prisma.coupon.findFirst({
-          where: { code: cleanCode, isActive: true },
-        });
-        if (otherCoupon && otherCoupon.shopId && otherCoupon.shopId !== resolvedShopId) {
-          couponError = `Coupon '${cleanCode}' is exclusive to another restaurant and cannot be applied here`;
-        } else {
-          couponError = 'Invalid or expired coupon code';
-        }
-      } else if (subtotal < Number(coupon.minOrderAmount)) {
-        couponError = `Minimum order amount of ₹${coupon.minOrderAmount} required for ${cleanCode}`;
+        couponError = 'Invalid or expired coupon code';
       } else {
-        let cDiscount = 0;
-        if (coupon.discountType === 'PERCENT') {
-          cDiscount = (subtotal * Number(coupon.discountValue)) / 100;
-          if (coupon.maxDiscount) {
-            cDiscount = Math.min(cDiscount, Number(coupon.maxDiscount));
-          }
+        const targetShop = resolvedShopId
+          ? await prisma.shop.findUnique({
+              where: { id: resolvedShopId },
+              select: { id: true, state: true, district: true },
+            })
+          : null;
+
+        const match = targetShop
+          ? isCouponValidForShop(coupon, targetShop)
+          : {
+              valid:
+                coupon.shopId === null &&
+                (!coupon.applicableShopIds || coupon.applicableShopIds.length === 0) &&
+                !coupon.targetState &&
+                !coupon.targetDistrict,
+            };
+
+        if (!match.valid) {
+          couponError = match.reason || `Coupon '${cleanCode}' is not applicable at this restaurant`;
+        } else if (subtotal < Number(coupon.minOrderAmount)) {
+          couponError = `Minimum order amount of ₹${coupon.minOrderAmount} required for ${cleanCode}`;
         } else {
-          cDiscount = Number(coupon.discountValue);
+          let cDiscount = 0;
+          if (coupon.discountType === 'PERCENT') {
+            cDiscount = (subtotal * Number(coupon.discountValue)) / 100;
+            if (coupon.maxDiscount) {
+              cDiscount = Math.min(cDiscount, Number(coupon.maxDiscount));
+            }
+          } else {
+            cDiscount = Number(coupon.discountValue);
+          }
+          cDiscount = Math.min(subtotal, Math.round(cDiscount * 100) / 100);
+          discountAmount += cDiscount;
+          appliedCoupon = {
+            code: cleanCode,
+            discountAmount: cDiscount,
+            type: coupon.discountType,
+            value: Number(coupon.discountValue),
+          };
+          reasons.push(`Coupon: ${cleanCode} (-₹${cDiscount})`);
         }
-        cDiscount = Math.min(subtotal, Math.round(cDiscount * 100) / 100);
-        discountAmount += cDiscount;
-        appliedCoupon = {
-          code: cleanCode,
-          discountAmount: cDiscount,
-          type: coupon.discountType,
-          value: Number(coupon.discountValue),
-        };
-        reasons.push(`Coupon: ${cleanCode} (-₹${cDiscount})`);
       }
     }
 
@@ -1017,14 +1087,16 @@ export class OrderService {
    * Public: Get available active coupons for a restaurant menu
    */
   async getPublicShopCoupons(slug: string) {
-    const shop = await prisma.shop.findUnique({ where: { slug } });
+    const shop = await prisma.shop.findUnique({
+      where: { slug },
+      select: { id: true, name: true, state: true, district: true },
+    });
     if (!shop) {
       throw new AppError('Shop not found', 404);
     }
-    const coupons = await prisma.coupon.findMany({
+    const allCoupons = await prisma.coupon.findMany({
       where: {
         isActive: true,
-        OR: [{ shopId: shop.id }, { shopId: null }],
       },
       select: {
         id: true,
@@ -1034,13 +1106,22 @@ export class OrderService {
         minOrderAmount: true,
         maxDiscount: true,
         shopId: true,
+        targetState: true,
+        targetDistrict: true,
+        applicableShopIds: true,
       },
       orderBy: { discountValue: 'desc' },
     });
 
-    return coupons.map((c) => ({
+    const validCoupons = allCoupons.filter((c) => isCouponValidForShop(c, shop).valid);
+
+    return validCoupons.map((c) => ({
       ...c,
-      isGlobal: c.shopId === null,
+      isGlobal:
+        c.shopId === null &&
+        (!c.applicableShopIds || c.applicableShopIds.length === 0) &&
+        !c.targetState &&
+        !c.targetDistrict,
     }));
   }
 }
