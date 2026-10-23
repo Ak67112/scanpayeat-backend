@@ -10,6 +10,7 @@ export const checkoutSchema = z
   .object({
     shopId: z.number().int().positive().optional(),
     shopSlug: z.string().optional(),
+    tableNumber: z.string().optional(),
     items: z.array(checkoutItemSchema).min(1, 'Order must contain at least 1 item'),
     customerName: z.string().optional(),
     customerPhone: z.string().optional(),

@@ -47,6 +47,9 @@ export class AdminService {
         state: dto.state,
         district: dto.district,
         phone: dto.phone,
+        hasDining: dto.hasDining ?? false,
+        tableCount: dto.tableCount ?? 0,
+        isOrderingEnabled: dto.isOrderingEnabled ?? true,
         qrUrl,
       },
     });

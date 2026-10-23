@@ -118,6 +118,28 @@ router.get('/coupons', orderController.getCoupons);
 router.post('/coupons', orderController.createCoupon);
 router.delete('/coupons/:id', orderController.deleteCoupon);
 
+// --- Kitchen Ordering Status ON/OFF Toggle ---
+router.patch('/ordering-status', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { isOrderingEnabled } = req.body;
+    if (typeof isOrderingEnabled !== 'boolean') {
+      throw new AppError('isOrderingEnabled must be a boolean', 400);
+    }
+    const updatedShop = await prisma.shop.update({
+      where: { id: req.shopId! },
+      data: { isOrderingEnabled },
+    });
+    sendSuccess(
+      res,
+      { isOrderingEnabled: updatedShop.isOrderingEnabled },
+      `Kitchen ordering is now ${isOrderingEnabled ? 'ENABLED' : 'PAUSED'}`,
+      200
+    );
+  } catch (error) {
+    next(error);
+  }
+});
+
 // --- Shop & Shopkeeper Profile Management (Logo, Ambience Images, Bio) ---
 router.get('/profile', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -136,7 +158,7 @@ router.get('/profile', async (req: Request, res: Response, next: NextFunction): 
 
 router.put('/profile', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { name, address, state, district, phone, logoUrl, bannerUrl, description, ambienceImages, keeperName, keeperMobile, keeperAvatarUrl } = req.body;
+    const { name, address, state, district, phone, logoUrl, bannerUrl, description, ambienceImages, isOrderingEnabled, keeperName, keeperMobile, keeperAvatarUrl } = req.body;
 
     const updatedShop = await prisma.shop.update({
       where: { id: req.shopId! },
@@ -149,6 +171,7 @@ router.put('/profile', async (req: Request, res: Response, next: NextFunction): 
         ...(logoUrl !== undefined && { logoUrl }),
         ...(bannerUrl !== undefined && { bannerUrl }),
         ...(description !== undefined && { description }),
+        ...(isOrderingEnabled !== undefined && { isOrderingEnabled: Boolean(isOrderingEnabled) }),
         ...(Array.isArray(ambienceImages) && { ambienceImages }),
       },
     });

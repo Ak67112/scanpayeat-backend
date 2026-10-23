@@ -111,6 +111,13 @@ export class OrderService {
       throw new AppError('The requested shop is not available for orders.', 404);
     }
 
+    if (!shop.isOrderingEnabled) {
+      throw new AppError(
+        'Online ordering is currently turned off by the kitchen. Please check back shortly.',
+        400
+      );
+    }
+
     // 1.5 Strict Wallet & QR Payment check (fails if QR disabled or balance < minWalletLimit)
     await walletService.checkQrPaymentAllowed(shop.id);
 
@@ -336,6 +343,7 @@ export class OrderService {
           customerId: customer?.id ?? null,
           customerName: dto.customerName ?? customer?.name ?? 'Guest Customer',
           customerPhone: dto.customerPhone ?? null,
+          tableNumber: dto.tableNumber ? String(dto.tableNumber).trim() : null,
           orderStatus: OrderStatus.PENDING,
           paymentStatus: PaymentStatus.PENDING,
           subtotal,

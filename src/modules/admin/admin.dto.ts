@@ -14,6 +14,9 @@ export const createShopSchema = z.object({
   state: z.string().optional(),
   district: z.string().optional(),
   phone: z.string().optional(),
+  hasDining: z.boolean().optional(),
+  tableCount: z.number().int().min(0).max(500).optional(),
+  isOrderingEnabled: z.boolean().optional(),
 });
 
 export const updateShopSchema = z.object({
@@ -32,6 +35,9 @@ export const updateShopSchema = z.object({
   state: z.string().optional(),
   district: z.string().optional(),
   phone: z.string().optional(),
+  hasDining: z.boolean().optional(),
+  tableCount: z.number().int().min(0).max(500).optional(),
+  isOrderingEnabled: z.boolean().optional(),
   isActive: z.boolean().optional(),
 });
 
