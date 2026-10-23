@@ -360,7 +360,12 @@ export class AuthService {
           },
         },
       });
-      return { ...shopkeeper, role: 'SHOPKEEPER' };
+      return {
+        ...shopkeeper,
+        role: 'SHOPKEEPER',
+        shopName: shopkeeper?.shop?.name ?? null,
+        shopSlug: shopkeeper?.shop?.slug ?? null,
+      };
     }
 
     const customer = await prisma.customer.findUnique({
