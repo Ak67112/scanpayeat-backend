@@ -36,7 +36,7 @@ export function encodeTableToken(slug: string, tableNumber: string | number): st
     payloadBytes.push(payload.charCodeAt(i));
   }
 
-  const streamKey = `${SECRET_KEY}:${normSlug}:${nonce}`;
+  const streamKey = `${SECRET_KEY}:${nonce}`;
   const keystream = generateKeystream(streamKey, payloadBytes.length);
   const cipherHexArr: string[] = [];
   for (let i = 0; i < payloadBytes.length; i++) {
@@ -44,35 +44,34 @@ export function encodeTableToken(slug: string, tableNumber: string | number): st
     cipherHexArr.push(cipherByte.toString(16).padStart(2, '0'));
   }
   const cipherHex = cipherHexArr.join('');
-  const sig = fnv1a(`${cipherHex}:${SECRET_KEY}:${normSlug}`).toString(16).padStart(8, '0');
+  const sig = fnv1a(`${cipherHex}:${SECRET_KEY}`).toString(16).padStart(8, '0');
   return `${nonce}${sig}${cipherHex}`;
 }
 
 export function decodeTableToken(
-  slug: string,
+  slug: string | null | undefined,
   token: string | null | undefined
-): { valid: boolean; table: string | null } {
+): { valid: boolean; slug: string | null; table: string | null } {
   try {
     if (!token || typeof token !== 'string') {
-      return { valid: false, table: null };
+      return { valid: false, slug: null, table: null };
     }
 
     const cleanToken = token.trim();
     if (cleanToken.length < 16) {
-      return { valid: false, table: null };
+      return { valid: false, slug: null, table: null };
     }
 
-    const normSlug = (slug || '').toLowerCase().trim();
     const nonce = cleanToken.slice(0, 6);
     const sig = cleanToken.slice(6, 14);
     const cipherHex = cleanToken.slice(14);
 
-    const expectedSig = fnv1a(`${cipherHex}:${SECRET_KEY}:${normSlug}`).toString(16).padStart(8, '0');
+    const expectedSig = fnv1a(`${cipherHex}:${SECRET_KEY}`).toString(16).padStart(8, '0');
     if (sig.toLowerCase() !== expectedSig.toLowerCase()) {
-      return { valid: false, table: null };
+      return { valid: false, slug: null, table: null };
     }
 
-    const streamKey = `${SECRET_KEY}:${normSlug}:${nonce}`;
+    const streamKey = `${SECRET_KEY}:${nonce}`;
     const cipherBytes: number[] = [];
     for (let i = 0; i < cipherHex.length; i += 2) {
       cipherBytes.push(parseInt(cipherHex.slice(i, i + 2), 16));
@@ -86,16 +85,20 @@ export function decodeTableToken(
 
     const parts = plainText.split('|');
     if (parts.length !== 3) {
-      return { valid: false, table: null };
+      return { valid: false, slug: null, table: null };
     }
 
     const [table, embeddedSlug, embeddedNonce] = parts;
-    if (embeddedSlug !== normSlug || embeddedNonce !== nonce) {
-      return { valid: false, table: null };
+    if (embeddedNonce !== nonce) {
+      return { valid: false, slug: null, table: null };
     }
 
-    return { valid: true, table: table.trim() };
+    if (slug && embeddedSlug !== slug.toLowerCase().trim()) {
+      return { valid: false, slug: null, table: null };
+    }
+
+    return { valid: true, slug: embeddedSlug, table: table.trim() };
   } catch {
-    return { valid: false, table: null };
+    return { valid: false, slug: null, table: null };
   }
 }

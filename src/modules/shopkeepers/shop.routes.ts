@@ -140,6 +140,62 @@ router.patch('/ordering-status', async (req: Request, res: Response, next: NextF
   }
 });
 
+// --- Dining Tables Management (Shopkeeper Table Increment & Count) ---
+router.post('/tables/add', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const shop = await prisma.shop.findUnique({ where: { id: req.shopId! } });
+    if (!shop) throw new AppError('Shop not found', 404);
+
+    const newTableCount = (shop.tableCount || 0) + 1;
+    const updatedShop = await prisma.shop.update({
+      where: { id: req.shopId! },
+      data: {
+        hasDining: true,
+        tableCount: newTableCount,
+      },
+    });
+
+    sendSuccess(
+      res,
+      {
+        hasDining: updatedShop.hasDining,
+        tableCount: updatedShop.tableCount,
+        addedTable: newTableCount,
+      },
+      `Table #${newTableCount} added successfully`,
+      200
+    );
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.patch('/tables', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { tableCount, hasDining } = req.body;
+    const count = Math.max(0, parseInt(tableCount, 10) || 0);
+    const updatedShop = await prisma.shop.update({
+      where: { id: req.shopId! },
+      data: {
+        ...(hasDining !== undefined && { hasDining: Boolean(hasDining) }),
+        tableCount: count,
+      },
+    });
+
+    sendSuccess(
+      res,
+      {
+        hasDining: updatedShop.hasDining,
+        tableCount: updatedShop.tableCount,
+      },
+      `Dining tables updated to ${count}`,
+      200
+    );
+  } catch (error) {
+    next(error);
+  }
+});
+
 // --- Shop & Shopkeeper Profile Management (Logo, Ambience Images, Bio) ---
 router.get('/profile', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -158,7 +214,7 @@ router.get('/profile', async (req: Request, res: Response, next: NextFunction): 
 
 router.put('/profile', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { name, address, state, district, phone, logoUrl, bannerUrl, description, ambienceImages, isOrderingEnabled, keeperName, keeperMobile, keeperAvatarUrl } = req.body;
+    const { name, address, state, district, phone, logoUrl, bannerUrl, description, ambienceImages, hasDining, tableCount, isOrderingEnabled, keeperName, keeperMobile, keeperAvatarUrl } = req.body;
 
     const updatedShop = await prisma.shop.update({
       where: { id: req.shopId! },
@@ -171,6 +227,8 @@ router.put('/profile', async (req: Request, res: Response, next: NextFunction): 
         ...(logoUrl !== undefined && { logoUrl }),
         ...(bannerUrl !== undefined && { bannerUrl }),
         ...(description !== undefined && { description }),
+        ...(hasDining !== undefined && { hasDining: Boolean(hasDining) }),
+        ...(tableCount !== undefined && { tableCount: Math.max(0, parseInt(tableCount, 10) || 0) }),
         ...(isOrderingEnabled !== undefined && { isOrderingEnabled: Boolean(isOrderingEnabled) }),
         ...(Array.isArray(ambienceImages) && { ambienceImages }),
       },
