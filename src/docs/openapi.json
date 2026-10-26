@@ -1,9 +1,9 @@
 {
   "openapi": "3.0.0",
   "info": {
-    "title": "Hotelkada Backend API",
+    "title": "Hotel Kada Backend API",
     "version": "1.0.0",
-    "description": "Production-ready, multi-tenant QR food ordering platform backend for Hotelkada. Supports three user roles: Admin, Shopkeeper, and Customer."
+    "description": "Production-ready, multi-tenant QR food ordering platform backend for Hotel Kada. Supports three user roles: Admin, Shopkeeper, and Customer."
   },
   "servers": [
     {
