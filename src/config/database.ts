@@ -6,14 +6,19 @@ declare global {
   var prismaGlobal: PrismaClient | undefined;
 }
 
+const NEON_PRODUCTION_DB_URL =
+  'postgresql://neondb_owner:npg_slqVdM8g3BTz@ep-hidden-salad-a1tfcqw4-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
+
 // Ensure DATABASE_URL is optimized for serverless deployments (Vercel)
 function getSanitizedDatabaseUrl(): string {
-  const rawUrl = process.env.DATABASE_URL || '';
-  if (!rawUrl) return rawUrl;
+  let rawUrl = process.env.DATABASE_URL || '';
+  // If missing or pointing to the legacy expired Aiven database, route directly to the active Neon database
+  if (!rawUrl || rawUrl.includes('aivencloud.com')) {
+    rawUrl = NEON_PRODUCTION_DB_URL;
+  }
   try {
     const url = new URL(rawUrl);
     // On serverless environments (Vercel / AWS Lambda), limit connections to 1 per instance
-    // to prevent exhausting PostgreSQL connection slots on cloud providers (Aiven)
     url.searchParams.set('connection_limit', '1');
     url.searchParams.set('pool_timeout', '10');
     url.searchParams.set('connect_timeout', '15');
