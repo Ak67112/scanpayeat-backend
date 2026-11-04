@@ -173,31 +173,143 @@ async function seedNeonMaster() {
     console.log('🧑‍🍳 Shopkeepers seeded:', keeper1.email, keeper2.email);
 
     // 5. Seed Wallet for Shopkeeper
-    await prisma.shopkeeperWallet.upsert({
+    const wallet1 = await prisma.shopkeeperWallet.upsert({
       where: { shopkeeperId: keeper1.id },
       update: {
-        balance: 5000.0,
+        balance: 5100.0,
         minWalletLimit: -1000.0,
         isQrEnabled: true,
-        totalCredits: 15400.0,
+        totalCredits: 15500.0,
         totalDebits: 10400.0,
       },
       create: {
         shopkeeperId: keeper1.id,
-        balance: 5000.0,
+        balance: 5100.0,
         minWalletLimit: -1000.0,
         isQrEnabled: true,
-        totalCredits: 15400.0,
+        totalCredits: 15500.0,
         totalDebits: 10400.0,
       },
     });
-    console.log('💰 Seeded Shopkeeper Wallet with balance ₹5,000.00');
 
-    // 6. Seed All Categories & Menu Products for Noshta Cafe
-    await prisma.category.deleteMany({
-      where: { shopId: shop.id },
+    await prisma.shopkeeperWallet.upsert({
+      where: { shopkeeperId: keeper2.id },
+      update: {
+        balance: 0.0,
+        minWalletLimit: 0.0,
+        isQrEnabled: true,
+        totalCredits: 0.0,
+        totalDebits: 0.0,
+      },
+      create: {
+        shopkeeperId: keeper2.id,
+        balance: 0.0,
+        minWalletLimit: 0.0,
+        isQrEnabled: true,
+        totalCredits: 0.0,
+        totalDebits: 0.0,
+      },
     });
 
+    // Seed audit-compliant Ledger Transactions for wallet1 (Noshta Kitchen Manager)
+    const seedTransactions = [
+      {
+        idempotencyKey: 'TX_SEED_ONBOARDING_TOPUP',
+        walletId: wallet1.id,
+        type: 'CREDIT' as const,
+        amount: 5000.0,
+        previousBalance: 0.0,
+        newBalance: 5000.0,
+        reference: 'ADM-CR-HK90214',
+        notes: 'Initial platform wallet credit by Admin upon restaurant onboarding',
+        createdAt: new Date('2026-10-25T10:00:00.000Z'),
+      },
+      {
+        idempotencyKey: 'TX_SEED_SETTLE_T14820',
+        walletId: wallet1.id,
+        type: 'CREDIT' as const,
+        amount: 4200.0,
+        previousBalance: 5000.0,
+        newBalance: 9200.0,
+        reference: 'ORD-SETTLE-T14820',
+        notes: 'QR Dine-in Orders Daily Settlement (Tables #1, #2, #4)',
+        createdAt: new Date('2026-10-28T14:30:00.000Z'),
+      },
+      {
+        idempotencyKey: 'TX_SEED_FEE_OCT_W4',
+        walletId: wallet1.id,
+        type: 'DEBIT' as const,
+        amount: 3200.0,
+        previousBalance: 9200.0,
+        newBalance: 6000.0,
+        reference: 'PLT-FEE-OCT-W4',
+        notes: 'Platform commission (2%) & Razorpay gateway processing fees',
+        createdAt: new Date('2026-10-29T23:59:00.000Z'),
+      },
+      {
+        idempotencyKey: 'TX_SEED_SETTLE_T29310',
+        walletId: wallet1.id,
+        type: 'CREDIT' as const,
+        amount: 6200.0,
+        previousBalance: 6000.0,
+        newBalance: 12200.0,
+        reference: 'ORD-SETTLE-T29310',
+        notes: 'Weekend QR dining batch settlement (Tables #1 to #6)',
+        createdAt: new Date('2026-11-01T12:15:00.000Z'),
+      },
+      {
+        idempotencyKey: 'TX_SEED_FEE_NOV_W1',
+        walletId: wallet1.id,
+        type: 'DEBIT' as const,
+        amount: 7200.0,
+        previousBalance: 12200.0,
+        newBalance: 5000.0,
+        reference: 'PLT-FEE-NOV-W1',
+        notes: 'Monthly KDS software licence & platform convenience charge',
+        createdAt: new Date('2026-11-02T23:59:00.000Z'),
+      },
+      {
+        idempotencyKey: 'RCH_pay_Tw2WmFfzDtU8Uf',
+        walletId: wallet1.id,
+        type: 'CREDIT' as const,
+        amount: 100.0,
+        previousBalance: 5000.0,
+        newBalance: 5100.0,
+        reference: 'pay_Tw2WmFfzDtU8Uf',
+        notes: 'Online Wallet Recharge via Razorpay (pay_Tw2WmFfzDtU8Uf)',
+        createdAt: new Date('2026-11-04T08:55:59.273Z'),
+      },
+    ];
+
+    for (const tx of seedTransactions) {
+      await prisma.walletTransaction.upsert({
+        where: { idempotencyKey: tx.idempotencyKey },
+        update: {
+          walletId: tx.walletId,
+          type: tx.type,
+          amount: tx.amount,
+          previousBalance: tx.previousBalance,
+          newBalance: tx.newBalance,
+          reference: tx.reference,
+          notes: tx.notes,
+          createdAt: tx.createdAt,
+        },
+        create: {
+          idempotencyKey: tx.idempotencyKey,
+          walletId: tx.walletId,
+          type: tx.type,
+          amount: tx.amount,
+          previousBalance: tx.previousBalance,
+          newBalance: tx.newBalance,
+          reference: tx.reference,
+          notes: tx.notes,
+          createdAt: tx.createdAt,
+        },
+      });
+    }
+    console.log('💰 Seeded Shopkeeper Wallet and 6 Ledger Transactions with balance ₹5,100.00');
+
+    // 6. Seed All Categories & Menu Products for Noshta Cafe
     const menuData = [
       {
         category: 'STARTERS',
@@ -482,28 +594,60 @@ async function seedNeonMaster() {
 
     let totalProducts = 0;
     for (const cat of menuData) {
-      const createdCat = await prisma.category.create({
-        data: {
-          shopId: shop.id,
-          name: cat.category,
-          description: cat.description,
-          sortOrder: cat.sortOrder,
-          isActive: true,
-        },
+      let createdCat = await prisma.category.findFirst({
+        where: { shopId: shop.id, name: cat.category },
       });
 
-      for (const item of cat.items) {
-        await prisma.product.create({
+      if (!createdCat) {
+        createdCat = await prisma.category.create({
           data: {
             shopId: shop.id,
-            categoryId: createdCat.id,
-            name: item.name,
-            price: item.price,
-            description: item.description,
-            imageUrl: item.imageUrl,
-            isAvailable: true,
+            name: cat.category,
+            description: cat.description,
+            sortOrder: cat.sortOrder,
+            isActive: true,
           },
         });
+      } else {
+        createdCat = await prisma.category.update({
+          where: { id: createdCat.id },
+          data: {
+            description: cat.description,
+            sortOrder: cat.sortOrder,
+            isActive: true,
+          },
+        });
+      }
+
+      for (const item of cat.items) {
+        const existingProd = await prisma.product.findFirst({
+          where: { shopId: shop.id, name: item.name },
+        });
+
+        if (existingProd) {
+          await prisma.product.update({
+            where: { id: existingProd.id },
+            data: {
+              categoryId: createdCat.id,
+              price: item.price,
+              description: item.description,
+              imageUrl: item.imageUrl,
+              isAvailable: true,
+            },
+          });
+        } else {
+          await prisma.product.create({
+            data: {
+              shopId: shop.id,
+              categoryId: createdCat.id,
+              name: item.name,
+              price: item.price,
+              description: item.description,
+              imageUrl: item.imageUrl,
+              isAvailable: true,
+            },
+          });
+        }
         totalProducts++;
       }
     }

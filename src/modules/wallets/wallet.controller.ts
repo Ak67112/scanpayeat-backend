@@ -161,7 +161,14 @@ export class WalletController {
       }
 
       const wallet = await walletService.getWalletByShopkeeperId(shopkeeperId);
-      sendSuccess(res, { wallet }, 'My wallet details retrieved');
+      sendSuccess(
+        res,
+        {
+          wallet,
+          transactions: wallet.recentTransactions || [],
+        },
+        'My wallet details retrieved'
+      );
     } catch (err) {
       next(err);
     }
