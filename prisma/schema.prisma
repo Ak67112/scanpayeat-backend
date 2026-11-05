@@ -81,6 +81,7 @@ model Shop {
   orders        Order[]
   payments      Payment[]
   tokenCounters TokenCounter[]
+  qrScans       QrScan[]
 
   @@map("shops")
 }
@@ -407,6 +408,23 @@ model PartnerEnquiry {
   @@index([status])
   @@index([createdAt])
   @@map("partner_enquiries")
+}
+
+model QrScan {
+  id          Int      @id @default(autoincrement())
+  shopId      Int
+  shop        Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  tableNumber String?  // e.g. "1", "2", ... or null for Counter / Main Store QR
+  qrType      String   @default("TABLE") // "TABLE" | "COUNTER" | "STEALTH"
+  token       String?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([shopId])
+  @@index([shopId, tableNumber])
+  @@index([createdAt])
+  @@map("qr_scans")
 }
 
 

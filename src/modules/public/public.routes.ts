@@ -12,6 +12,7 @@ import { prisma } from '../../config/database';
 
 router.get('/shops/:slug', publicController.getShop);
 router.get('/shops/:slug/menu', publicController.getMenu);
+router.post('/shops/:slug/scan', publicController.recordScan);
 router.get('/shops/:slug/coupons', orderController.getPublicShopCoupons);
 router.get('/discount-check', orderController.checkDiscounts);
 

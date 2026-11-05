@@ -12,6 +12,7 @@ import { upload, uploadImageToStorage } from '../../utils/uploader';
 import { sendSuccess } from '../../utils/response';
 import { AppError } from '../../middleware/error.middleware';
 import { prisma } from '../../config/database';
+import { adminService } from '../admin/admin.service';
 import {
   createCategorySchema,
   updateCategorySchema,
@@ -191,6 +192,16 @@ router.patch('/tables', async (req: Request, res: Response, next: NextFunction):
       `Dining tables updated to ${count}`,
       200
     );
+  } catch (error) {
+    next(error);
+  }
+});
+
+// --- Shopkeeper QR Scan Analytics (Per Table & Counter Breakdown) ---
+router.get('/qr-analytics', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const analytics = await adminService.getShopQrAnalytics(req.shopId!);
+    sendSuccess(res, analytics, 'Shop QR analytics retrieved successfully', 200);
   } catch (error) {
     next(error);
   }

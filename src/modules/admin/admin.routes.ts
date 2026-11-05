@@ -32,6 +32,7 @@ router.post(
   adminController.createShop
 );
 router.get('/shops', adminController.getShops);
+router.get('/shops/:id/qr-analytics', adminController.getShopQrAnalytics);
 router.get('/shops/:id', adminController.getShopById);
 router.put(
   '/shops/:id',

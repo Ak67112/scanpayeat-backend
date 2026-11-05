@@ -86,6 +86,7 @@ export class AdminService {
               products: true,
               orders: true,
               shopkeepers: true,
+              qrScans: true,
             },
           },
         },
@@ -93,7 +94,146 @@ export class AdminService {
       }),
     ]);
 
-    return { total, page, limit, totalPages: Math.ceil(total / limit), shops };
+    // Aggregate scan counts per table for each shop
+    const shopIds = shops.map((s) => s.id);
+    const scanGroups =
+      shopIds.length > 0
+        ? await prisma.qrScan.groupBy({
+            by: ['shopId', 'tableNumber'],
+            where: { shopId: { in: shopIds } },
+            _count: { id: true },
+          })
+        : [];
+
+    const enrichedShops = shops.map((s) => {
+      const groupsForShop = scanGroups.filter((g) => g.shopId === s.id);
+      const tableBreakdown: Record<string, number> = {};
+      let counterScans = 0;
+
+      for (const g of groupsForShop) {
+        if (!g.tableNumber || g.tableNumber === 'COUNTER' || g.tableNumber === 'TAKEAWAY') {
+          counterScans += g._count.id;
+        } else {
+          tableBreakdown[g.tableNumber] = g._count.id;
+        }
+      }
+
+      return {
+        ...s,
+        totalQrScans: s._count.qrScans,
+        counterQrScans: counterScans,
+        tableQrScans: tableBreakdown,
+      };
+    });
+
+    return { total, page, limit, totalPages: Math.ceil(total / limit), shops: enrichedShops };
+  }
+
+  async getShopQrAnalytics(shopId: number) {
+    const shop = await prisma.shop.findUnique({
+      where: { id: shopId },
+      include: {
+        _count: {
+          select: { qrScans: true },
+        },
+      },
+    });
+
+    if (!shop) throw new AppError('Shop not found.', 404);
+
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const startOfMonth = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const [
+      totalScans,
+      scansToday,
+      scansWeek,
+      scansMonth,
+      scanGroups,
+      recentScans,
+    ] = await Promise.all([
+      prisma.qrScan.count({ where: { shopId } }),
+      prisma.qrScan.count({ where: { shopId, createdAt: { gte: startOfToday } } }),
+      prisma.qrScan.count({ where: { shopId, createdAt: { gte: startOfWeek } } }),
+      prisma.qrScan.count({ where: { shopId, createdAt: { gte: startOfMonth } } }),
+      prisma.qrScan.groupBy({
+        by: ['tableNumber'],
+        where: { shopId },
+        _count: { id: true },
+      }),
+      prisma.qrScan.findMany({
+        where: { shopId },
+        take: 30,
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    // Build per-table map & last scanned timestamps
+    const tableScansMap: Record<string, number> = {};
+    let counterScans = 0;
+
+    for (const g of scanGroups) {
+      if (!g.tableNumber || g.tableNumber === 'COUNTER' || g.tableNumber === 'TAKEAWAY') {
+        counterScans += g._count.id;
+      } else {
+        tableScansMap[g.tableNumber] = g._count.id;
+      }
+    }
+
+    // Build structured table list from 1 to tableCount (if hasDining)
+    const tableCount = Math.max(0, shop.tableCount || 0);
+    const tables: Array<{
+      tableNumber: number;
+      label: string;
+      scans: number;
+      percentage: number;
+      lastScannedAt: Date | null;
+    }> = [];
+
+    for (let t = 1; t <= tableCount; t++) {
+      const count = tableScansMap[String(t)] || 0;
+      const pct = totalScans > 0 ? Math.round((count / totalScans) * 100) : 0;
+      const lastScan = recentScans.find((s) => s.tableNumber === String(t));
+
+      tables.push({
+        tableNumber: t,
+        label: `Table #${t}`,
+        scans: count,
+        percentage: pct,
+        lastScannedAt: lastScan ? lastScan.createdAt : null,
+      });
+    }
+
+    return {
+      shop: {
+        id: shop.id,
+        name: shop.name,
+        slug: shop.slug,
+        hasDining: shop.hasDining,
+        tableCount: shop.tableCount,
+        qrUrl: shop.qrUrl,
+      },
+      summary: {
+        totalScans,
+        scansToday,
+        scansWeek,
+        scansMonth,
+        counterScans,
+        counterPercentage: totalScans > 0 ? Math.round((counterScans / totalScans) * 100) : 0,
+        diningScans: totalScans - counterScans,
+      },
+      tables,
+      recentScans: recentScans.map((s) => ({
+        id: s.id,
+        tableNumber: s.tableNumber,
+        qrType: s.qrType,
+        ipAddress: s.ipAddress,
+        userAgent: s.userAgent,
+        createdAt: s.createdAt,
+      })),
+    };
   }
 
   async getShopById(id: number) {

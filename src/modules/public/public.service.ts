@@ -89,6 +89,73 @@ export class PublicService {
       })),
     };
   }
+
+  /**
+   * Record a QR scan event for a shop (Counter QR or Table QR)
+   */
+  async recordQrScan(data: {
+    slug: string;
+    tableNumber?: string | null;
+    qrType?: string;
+    token?: string;
+    ipAddress?: string;
+    userAgent?: string;
+  }) {
+    const shop = await this.getShopBySlug(data.slug);
+
+    // Normalize table number: extract digit or keep as string
+    let normalizedTable: string | null = null;
+    if (data.tableNumber && data.tableNumber !== '0') {
+      const match = String(data.tableNumber).match(/\d+/);
+      normalizedTable = match ? match[0] : String(data.tableNumber).trim();
+    }
+
+    // Debounce duplicate scans from same IP & table within 45 seconds to avoid double-counting on quick page reloads
+    if (data.ipAddress) {
+      const recent = await prisma.qrScan.findFirst({
+        where: {
+          shopId: shop.id,
+          tableNumber: normalizedTable,
+          ipAddress: data.ipAddress,
+          createdAt: {
+            gte: new Date(Date.now() - 45 * 1000),
+          },
+        },
+      });
+
+      if (recent) {
+        return {
+          recorded: false,
+          debounced: true,
+          shopId: shop.id,
+          tableNumber: normalizedTable,
+        };
+      }
+    }
+
+    const scan = await prisma.qrScan.create({
+      data: {
+        shopId: shop.id,
+        tableNumber: normalizedTable,
+        qrType: data.qrType || (normalizedTable ? 'TABLE' : 'COUNTER'),
+        token: data.token || null,
+        ipAddress: data.ipAddress || null,
+        userAgent: data.userAgent || null,
+      },
+    });
+
+    const totalScans = await prisma.qrScan.count({
+      where: { shopId: shop.id },
+    });
+
+    return {
+      recorded: true,
+      scanId: scan.id,
+      shopId: shop.id,
+      tableNumber: normalizedTable,
+      totalScans,
+    };
+  }
 }
 
 export const publicService = new PublicService();

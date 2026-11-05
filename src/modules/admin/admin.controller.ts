@@ -37,6 +37,16 @@ export class AdminController {
     }
   }
 
+  async getShopQrAnalytics(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const analytics = await adminService.getShopQrAnalytics(id);
+      sendSuccess(res, analytics, 'Shop QR scan analytics retrieved successfully', 200);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async updateShop(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const id = parseInt(req.params.id, 10);

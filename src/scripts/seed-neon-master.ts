@@ -653,6 +653,51 @@ async function seedNeonMaster() {
     }
 
     console.log(`✅ Seeded ${menuData.length} Categories and ${totalProducts} Products for Noshta Cafe`);
+
+    // 7. Seed Initial Realistic QR Scans for Noshta Cafe
+    const existingScansCount = await prisma.qrScan.count({ where: { shopId: shop.id } });
+    if (existingScansCount === 0) {
+      console.log('📲 Seeding initial QR scan history for Noshta Cafe...');
+      const tableScanDistribution = [
+        { table: null, qrType: 'COUNTER', count: 18 },  // Counter / Takeaway QR
+        { table: '1', qrType: 'TABLE', count: 28 },    // Table #1
+        { table: '2', qrType: 'TABLE', count: 35 },    // Table #2
+        { table: '3', qrType: 'TABLE', count: 19 },    // Table #3
+        { table: '4', qrType: 'TABLE', count: 24 },    // Table #4
+        { table: '5', qrType: 'TABLE', count: 31 },    // Table #5
+        { table: '6', qrType: 'TABLE', count: 22 },    // Table #6
+      ];
+
+      const now = Date.now();
+      const mockIps = ['152.58.12.44', '157.48.91.102', '49.37.210.88', '106.198.45.12', '27.5.112.99'];
+      const mockAgents = [
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+        'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+        'Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36',
+      ];
+
+      const scansToCreate = [];
+      for (const dist of tableScanDistribution) {
+        for (let i = 0; i < dist.count; i++) {
+          const hoursAgo = Math.floor(Math.random() * 120);
+          const scanTime = new Date(now - hoursAgo * 3600 * 1000 - Math.floor(Math.random() * 3600 * 1000));
+          scansToCreate.push({
+            shopId: shop.id,
+            tableNumber: dist.table,
+            qrType: dist.qrType,
+            ipAddress: mockIps[i % mockIps.length],
+            userAgent: mockAgents[i % mockAgents.length],
+            createdAt: scanTime,
+          });
+        }
+      }
+
+      await prisma.qrScan.createMany({
+        data: scansToCreate,
+      });
+      console.log(`✅ Seeded ${scansToCreate.length} QR scans across 6 tables + Counter QR`);
+    }
     console.log('\n🎉 Database Configuration & Sample Shop Setup Completed Successfully!');
     console.log('----------------------------------------------------');
     console.log('📌 Platform Admin:');
